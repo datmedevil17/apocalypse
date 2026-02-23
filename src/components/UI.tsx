@@ -7,9 +7,175 @@ export const UI = () => {
         selectedCharacter, setSelectedCharacter,
         selectedVariant, setSelectedVariant,
         selectedPet, setSelectedPet,
-        timeOfDay, setTimeOfDay
+        gamePhase, setGamePhase
     } = useStore();
     const toggleHelp = useUIStore((state) => state.toggleHelp);
+
+    if (gamePhase === 'intro') {
+        return (
+            <div style={{
+                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                background: "radial-gradient(circle at center, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.95) 100%)",
+                zIndex: 1000, color: "white", textAlign: "center", pointerEvents: "all"
+            }}>
+                <h1 style={{
+                    fontSize: "6rem",
+                    margin: 0,
+                    fontFamily: "'Creepster', cursive, serif",
+                    color: "#ff3d00",
+                    textShadow: "0 0 20px rgba(255, 61, 0, 0.5), 5px 5px 0px #000",
+                    letterSpacing: "0.5rem",
+                    transform: "rotate(-2deg) scale(1.1)",
+                    animation: "pulse 2s infinite ease-in-out"
+                }}>
+                    APOCALYPSE
+                </h1>
+                <p style={{
+                    fontSize: "1.2rem",
+                    marginTop: "20px",
+                    opacity: 0.8,
+                    letterSpacing: "0.2rem",
+                    fontFamily: "monospace"
+                }}>
+                    THE DEAD WALK AMONG US
+                </p>
+                <button
+                    onClick={() => setGamePhase('selection')}
+                    style={{
+                        marginTop: "60px",
+                        padding: "20px 60px",
+                        fontSize: "2rem",
+                        fontFamily: "'Inter', sans-serif",
+                        fontWeight: "900",
+                        background: "transparent",
+                        border: "2px solid #ff3d00",
+                        color: "#ff3d00",
+                        cursor: "pointer",
+                        transition: "all 0.3s ease",
+                        boxShadow: "0 0 15px rgba(255, 61, 0, 0.3)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.2rem"
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "#ff3d00";
+                        e.currentTarget.style.color = "black";
+                        e.currentTarget.style.boxShadow = "0 0 30px rgba(255, 61, 0, 0.6)";
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.color = "#ff3d00";
+                        e.currentTarget.style.boxShadow = "0 0 15px rgba(255, 61, 0, 0.3)";
+                    }}
+                >
+                    ENTER ARENA
+                </button>
+                <style>{`
+                    @import url('https://fonts.googleapis.com/css2?family=Creepster&display=swap');
+                    @keyframes pulse {
+                        0% { transform: rotate(-2deg) scale(1.1); }
+                        50% { transform: rotate(-2deg) scale(1.15); }
+                        100% { transform: rotate(-2deg) scale(1.1); }
+                    }
+                `}</style>
+            </div>
+        );
+    }
+
+    if (gamePhase === 'selection') {
+        return (
+            <div style={{
+                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)",
+                zIndex: 1000, color: "white", pointerEvents: "all"
+            }}>
+                <h2 style={{ fontSize: "3rem", marginBottom: "40px", fontFamily: "'Inter', sans-serif", fontWeight: 900, color: "#4facfe" }}>EQUIP YOURSELF</h2>
+
+                <div style={{ display: "flex", gap: "40px", alignItems: "stretch" }}>
+                    {/* Character Column */}
+                    <div style={{ background: "rgba(255,255,255,0.05)", padding: "30px", borderRadius: "20px", border: "1px solid rgba(255,255,255,0.1)", width: "300px" }}>
+                        <h3 style={{ margin: "0 0 20px 0", fontSize: "1.2rem", opacity: 0.6 }}>CHOOSE SURVIVOR</h3>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                            {baseCharacters.map((char) => (
+                                <button key={char} onClick={() => setSelectedCharacter(char)} style={{
+                                    padding: "15px", borderRadius: "10px", border: "none",
+                                    background: selectedCharacter === char ? "#4caf50" : "rgba(255, 255, 255, 0.05)",
+                                    color: "white", cursor: "pointer", fontSize: "1.1rem", transition: "all 0.2s ease",
+                                    textAlign: "left", fontWeight: selectedCharacter === char ? "bold" : "normal"
+                                }}>
+                                    {char}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Weapon Column */}
+                    <div style={{ background: "rgba(255,255,255,0.05)", padding: "30px", borderRadius: "20px", border: "1px solid rgba(255,255,255,0.1)", width: "300px" }}>
+                        <h3 style={{ margin: "0 0 20px 0", fontSize: "1.2rem", opacity: 0.6 }}>SELECT LOADOUT</h3>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+                            <button onClick={() => setSelectedVariant('Standard')} style={{
+                                padding: "20px", borderRadius: "10px", border: "none",
+                                background: selectedVariant === 'Standard' ? "#2196f3" : "rgba(255, 255, 255, 0.05)",
+                                color: "white", cursor: "pointer", fontSize: "1.1rem", transition: "all 0.2s ease"
+                            }}>
+                                <div style={{ fontWeight: "bold" }}>DUAL WIELD</div>
+                                <div style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "5px" }}>Maximum firepower</div>
+                            </button>
+                            <button onClick={() => setSelectedVariant('SingleWeapon')} style={{
+                                padding: "20px", borderRadius: "10px", border: "none",
+                                background: selectedVariant === 'SingleWeapon' ? "#2196f3" : "rgba(255, 255, 255, 0.05)",
+                                color: "white", cursor: "pointer", fontSize: "1.1rem", transition: "all 0.2s ease"
+                            }}>
+                                <div style={{ fontWeight: "bold" }}>SINGLE WEAPON</div>
+                                <div style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "5px" }}>Balanced control</div>
+                            </button>
+                        </div>
+
+                        <h3 style={{ margin: "30px 0 20px 0", fontSize: "1.2rem", opacity: 0.6 }}>COMPANION</h3>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                            {['Pug', 'GermanShepherd'].map((pet) => (
+                                <button key={pet} onClick={() => setSelectedPet(pet)} style={{
+                                    flex: 1, padding: "10px", borderRadius: "8px", border: "none",
+                                    background: selectedPet === pet ? "#ff9800" : "rgba(255, 255, 255, 0.05)",
+                                    color: "white", cursor: "pointer", fontSize: "0.9rem"
+                                }}>
+                                    {pet}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                <button
+                    onClick={() => setGamePhase('playing')}
+                    style={{
+                        marginTop: "50px",
+                        padding: "20px 80px",
+                        fontSize: "1.5rem",
+                        borderRadius: "50px",
+                        background: "linear-gradient(90deg, #4facfe 0%, #00f2fe 100%)",
+                        border: "none",
+                        color: "white",
+                        fontWeight: "bold",
+                        cursor: "pointer",
+                        boxShadow: "0 10px 20px rgba(79, 172, 254, 0.4)",
+                        transition: "all 0.3s ease"
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "scale(1.05)";
+                        e.currentTarget.style.boxShadow = "0 15px 30px rgba(79, 172, 254, 0.6)";
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "scale(1)";
+                        e.currentTarget.style.boxShadow = "0 10px 20px rgba(79, 172, 254, 0.4)";
+                    }}
+                >
+                    READY TO SURVIVE
+                </button>
+            </div>
+        );
+    }
 
     return (
         <>
@@ -27,88 +193,6 @@ export const UI = () => {
             </div>
 
             <HelpMenu />
-
-            <div style={{
-                position: "absolute", top: "20px", left: "20px", display: "flex", flexDirection: "column",
-                gap: "10px", zIndex: 100, background: "rgba(255, 255, 255, 0.1)", padding: "15px",
-                borderRadius: "12px", backdropFilter: "blur(10px)", border: "1px solid rgba(255, 255, 255, 0.2)",
-                boxShadow: "0 8px 32px 0 rgba(31, 38, 135, 0.37)", maxHeight: "80vh", overflowY: "auto", scrollbarWidth: "none",
-            }}>
-                <h2 style={{ color: "white", margin: "0 0 10px 0", fontSize: "1.2rem", fontFamily: "sans-serif" }}>Survivor</h2>
-                {baseCharacters.map((char: string) => (
-                    <button key={char} onClick={() => setSelectedCharacter(char)} style={{
-                        padding: "10px 20px", borderRadius: "8px", border: "none",
-                        background: selectedCharacter === char ? "#4caf50" : "rgba(255, 255, 255, 0.2)",
-                        color: "white", cursor: "pointer", fontSize: "1rem", transition: "all 0.2s ease",
-                        fontFamily: "sans-serif", fontWeight: selectedCharacter === char ? "bold" : "normal", textAlign: "left"
-                    }} onMouseEnter={(e) => selectedCharacter !== char && (e.currentTarget.style.background = "rgba(255, 255, 255, 0.3)")}
-                        onMouseLeave={(e) => selectedCharacter !== char && (e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)")}>
-                        {char}
-                    </button>
-                ))}
-
-                <div style={{ marginTop: "10px", padding: "10px", background: "rgba(0,0,0,0.2)", borderRadius: "8px" }}>
-                    <p style={{ color: "white", fontSize: "0.8rem", margin: "0 0 8px 0", opacity: 0.7 }}>WEAPONS</p>
-                    <div style={{ display: "flex", gap: "5px" }}>
-                        <button onClick={() => setSelectedVariant('Standard')} style={{
-                            flex: 1, padding: "5px", fontSize: "0.7rem", borderRadius: "4px", border: "none",
-                            background: selectedVariant === 'Standard' ? "#2196f3" : "rgba(255,255,255,0.1)",
-                            color: "white", cursor: "pointer"
-                        }}>
-                            Dual
-                        </button>
-                        <button onClick={() => setSelectedVariant('SingleWeapon')} style={{
-                            flex: 1, padding: "5px", fontSize: "0.7rem", borderRadius: "4px", border: "none",
-                            background: selectedVariant === 'SingleWeapon' ? "#2196f3" : "rgba(255,255,255,0.1)",
-                            color: "white", cursor: "pointer"
-                        }}>
-                            Single
-                        </button>
-                    </div>
-                </div>
-
-                <div style={{ marginTop: "15px" }}>
-                    <h2 style={{ color: "white", margin: "0 0 10px 0", fontSize: "1.2rem", fontFamily: "sans-serif" }}>Companion</h2>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-                        {['Pug', 'GermanShepherd'].map((pet) => (
-                            <button key={pet} onClick={() => setSelectedPet(pet)} style={{
-                                padding: "8px 15px", borderRadius: "6px", border: "none",
-                                background: selectedPet === pet ? "#ff9800" : "rgba(255, 255, 255, 0.1)",
-                                color: "white", cursor: "pointer", fontSize: "0.9rem", transition: "all 0.2s ease",
-                                textAlign: "left"
-                            }}>
-                                {pet}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </div>
-
-            <div style={{
-                position: "absolute", bottom: "30px", left: "50%", transform: "translateX(-50%)",
-                width: "300px", padding: "15px 25px", background: "rgba(255, 255, 255, 0.1)",
-                backdropFilter: "blur(10px)", borderRadius: "20px", border: "1px solid rgba(255, 255, 255, 0.2)",
-                boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.3)", display: "flex", flexDirection: "column", gap: "10px",
-                zIndex: 100
-            }}>
-                <div style={{ display: "flex", justifyContent: "space-between", color: "white", fontSize: "0.7rem", opacity: 0.8, textTransform: "uppercase", letterSpacing: "1px" }}>
-                    <span>Morning</span>
-                    <span>Noon</span>
-                    <span>Night</span>
-                </div>
-                <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={timeOfDay}
-                    onChange={(e) => setTimeOfDay(parseFloat(e.target.value))}
-                    style={{
-                        width: "100%", cursor: "pointer", accentColor: "#4facfe", height: "4px", borderRadius: "2px",
-                        appearance: "none", background: "rgba(255,255,255,0.2)"
-                    }}
-                />
-            </div>
         </>
     );
 };

@@ -27,6 +27,8 @@ interface GameState {
     localPetAnimation: string
     remotePlayers: Record<string, PlayerState>
     myId: string
+    gamePhase: 'intro' | 'selection' | 'playing'
+    setGamePhase: (phase: 'intro' | 'selection' | 'playing') => void
     setSelectedCharacter: (character: string) => void
     setSelectedVariant: (variant: 'Standard' | 'SingleWeapon') => void
     setSelectedPet: (pet: string) => void
@@ -49,6 +51,8 @@ export const useStore = create<GameState>((set) => ({
     localPetAnimation: 'Idle',
     remotePlayers: {},
     myId: Math.random().toString(36).substr(2, 9),
+    gamePhase: 'intro',
+    setGamePhase: (phase) => set({ gamePhase: phase }),
     setSelectedCharacter: (character) => set({ selectedCharacter: character }),
     setSelectedVariant: (variant) => set({ selectedVariant: variant }),
     setSelectedPet: (pet) => set({ selectedPet: pet }),

@@ -6,6 +6,7 @@ import { useMemo, Suspense } from "react";
 import { UI } from "./components/UI";
 import { Minimap } from "./components/Minimap";
 import { LoadingScreen } from "./components/LoadingScreen";
+import { Routes, Route, Navigate } from "react-router-dom";
 
 const Controls = {
   forward: "forward",
@@ -65,7 +66,14 @@ function App() {
         style={{ width: "100vw", height: "100vh" }}
       >
         <Suspense fallback={null}>
-          <Experience />
+          <Routes>
+            <Route path="/scene1" element={<Experience level={1} />} />
+            <Route path="/scene2" element={<Experience level={2} />} />
+            <Route path="/scene3" element={<Experience level={3} />} />
+            <Route path="/scene4" element={<Experience level={4} />} />
+            <Route path="/scene5" element={<Experience level={5} />} />
+            <Route path="/" element={<Navigate to="/scene3" replace />} />
+          </Routes>
         </Suspense>
         <Preload all />
       </Canvas>

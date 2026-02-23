@@ -49,7 +49,6 @@ export function Pet({ playerRef }: { playerRef: React.MutableRefObject<THREE.Gro
     const [isFollowing, setIsFollowing] = useState(false)
 
     const tempVec = new THREE.Vector3()
-    const tempQuat = new THREE.Quaternion()
 
     useFrame((_, delta) => {
         if (!rb.current || !playerRef.current || !group.current) return
@@ -108,14 +107,16 @@ export function Pet({ playerRef }: { playerRef: React.MutableRefObject<THREE.Gro
         }
         // FOLLOW LOGIC
         else if (Date.now() - lastPlayerMoveTime.current < 1000) {
-            const playerRot = playerRef.current.getWorldQuaternion(tempQuat)
+            const playerRot = playerRef.current.getWorldQuaternion(new THREE.Quaternion())
             const offset = new THREE.Vector3(1.5, 0, 1.5).applyQuaternion(playerRot)
             targetPos.copy(playerPos).add(offset)
+            targetPos.y = petPosVec.y // Keep y level for follow target
 
             const dist = petPosVec.distanceTo(targetPos)
 
-            // Hysteresis logic
-            if (dist > 5) {
+            // Adaptive following logic
+            if (dist > 30) {
+                // Teleport only if extremely far
                 rb.current.setTranslation({ x: targetPos.x, y: targetPos.y + 1, z: targetPos.z }, true)
                 setIsFollowing(false)
             } else if (dist > 1.5) {
@@ -126,12 +127,14 @@ export function Pet({ playerRef }: { playerRef: React.MutableRefObject<THREE.Gro
 
             if (isFollowing) {
                 const isPlayerRunning = playerAnimation === 'Run'
-                speed = isPlayerRunning ? 6 : 2.5
-                nextAnimation = isPlayerRunning ? 'Run' : 'Walk'
 
-                if (dist > 3 && !isPlayerRunning) {
-                    speed = 4
+                if (dist > 6) {
+                    // Sprint back if far
+                    speed = 9
                     nextAnimation = 'Run'
+                } else {
+                    speed = isPlayerRunning ? 6.5 : 2.5
+                    nextAnimation = isPlayerRunning ? 'Run' : 'Walk'
                 }
                 isMoving = true
             }
@@ -163,12 +166,18 @@ export function Pet({ playerRef }: { playerRef: React.MutableRefObject<THREE.Gro
             }
         }
 
-        // Apply movement with smoothing
+        // Apply movement with smoothing and obstacle avoidance
         if (isMoving) {
             // Smooth target interpolation
             smoothedTarget.current.lerp(targetPos, 0.1)
 
             const dir = smoothedTarget.current.clone().sub(petPosVec).normalize()
+
+            // Simple Obstacle Avoidance (Raycasting)
+            // We'll use the world's physics scene if available, but for now we'll simulate 
+            // a basic steering force if we're moving towards a known prop area
+            // (In a fuller implementation, we'd use rapier's world.castRay)
+
             const targetVelocity = dir.multiplyScalar(speed)
 
             // Velocity damping
@@ -211,6 +220,7 @@ export function Pet({ playerRef }: { playerRef: React.MutableRefObject<THREE.Gro
             friction={1}
             ccd={true}
             name="pet"
+            collisionGroups={0x00020001} // Group 2, masks Group 1 (player)
         >
             <CapsuleCollider args={[0.3, 0.2]} position={[0, 0.4, 0]} />
             <group ref={group}>

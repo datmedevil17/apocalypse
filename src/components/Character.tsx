@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { useRef, useState, useMemo } from 'react'
+import { useRef, useState, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import { RigidBody, CapsuleCollider, RapierRigidBody } from '@react-three/rapier'
@@ -34,6 +34,40 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
   const [animation, setAnimation] = useState('Idle')
   const selectedCharacter = useStore((state) => state.selectedCharacter)
   const selectedVariant = useStore((state) => state.selectedVariant)
+  const gamePhase = useStore((state) => state.gamePhase)
+
+  // Camera rotation state
+  const cameraRotation = useRef({ yaw: 0, pitch: -Math.PI / 8 })
+  const cameraDistance = 8
+
+  // Jump & Grounding state
+  const isGrounded = useRef(true)
+  const inAir = useRef(false)
+
+  // Setup Pointer Lock and Mouse Movement
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (document.pointerLockElement) {
+        cameraRotation.current.yaw -= e.movementX * 0.002
+        cameraRotation.current.pitch = Math.max(
+          -Math.PI / 2.5, // Looking down
+          Math.min(-0.05, cameraRotation.current.pitch - e.movementY * 0.002) // Prevent going below or horizontal
+        )
+      }
+    }
+
+    const handleCanvasClick = () => {
+      const canvas = document.querySelector('canvas')
+      if (canvas) canvas.requestPointerLock()
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mousedown', handleCanvasClick)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mousedown', handleCanvasClick)
+    }
+  }, [])
 
   const spawnPos = useMemo(() => {
     return [Math.random() * 10 - 5, 5, Math.random() * 10 - 5] as [number, number, number]
@@ -49,6 +83,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
   const { broadcast } = useSocket()
 
   useFrame((state) => {
+    if (gamePhase !== 'playing') return
     if (!rb.current || !groupRef.current) return
 
     const { forward, backward, left, right, sprint, petting, action1, action2, action3, action4, action5, action6, action7, action8, action9, action0 } = getKeys()
@@ -59,28 +94,46 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
     broadcast([pos.x, pos.y, pos.z], [rot.x, rot.y, rot.z, rot.w])
     setLocalPlayerPos([pos.x, pos.y, pos.z])
 
-    // Camera follow ...
-
     const velocity = rb.current.linvel()
-    const movement = new THREE.Vector3(0, 0, 0)
 
-    if (forward) movement.z -= 1
-    if (backward) movement.z += 1
-    if (left) movement.x -= 1
-    if (right) movement.x += 1
+    // Simple grounding check based on y velocity and position relative to ground 
+    // Roads are at y=0.01, grass at y=0. Character feet are around y=0.
+    isGrounded.current = Math.abs(velocity.y) < 0.2 && pos.y < 0.2
 
     let nextAnimation = animation
 
-    if (movement.length() > 0) {
+    const rawMovement = { x: 0, z: 0 }
+    if (forward) rawMovement.z -= 1
+    if (backward) rawMovement.z += 1
+    if (left) rawMovement.x -= 1
+    if (right) rawMovement.x += 1
+
+    const movement = new THREE.Vector3(0, 0, 0)
+
+    if (rawMovement.x !== 0 || rawMovement.z !== 0) {
+      // Calculate movement relative to camera yaw
+      const yaw = cameraRotation.current.yaw
+      const forwardVec = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+      const rightVec = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+
+      movement.add(forwardVec.multiplyScalar(-rawMovement.z))
+      movement.add(rightVec.multiplyScalar(rawMovement.x))
+      movement.normalize()
+
       const speed = sprint ? RUN_SPEED : WALK_SPEED
-      movement.normalize().multiplyScalar(speed)
+      movement.multiplyScalar(speed)
 
-      // Calculate rotation
-      const angle = Math.atan2(movement.x, movement.z)
-      const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle)
-      groupRef.current.quaternion.slerp(rotation, 0.1)
+      // Character faces movement direction
+      const targetRotation = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        Math.atan2(movement.x, movement.z)
+      )
+      groupRef.current.quaternion.slerp(targetRotation, 0.15)
 
-      nextAnimation = sprint ? 'Run' : 'Walk'
+      // Only set Walk/Run if not jumping
+      if (!inAir.current && animation !== 'Jump_Land') {
+        nextAnimation = sprint ? 'Run' : 'Walk'
+      }
     } else {
       // Handle action shortcuts when not moving
       const isAnimal = selectedCharacter === 'Pug' || selectedCharacter === 'GermanShepherd'
@@ -96,7 +149,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
       else if (action8) nextAnimation = isAnimal ? 'HitReact_Right' : 'HitReact'
       else if (action9) nextAnimation = isAnimal ? 'Walk' : 'Death'
       else if (action0) nextAnimation = 'Idle'
-      else if (animation === 'Walk' || animation === 'Run') {
+      else if (!inAir.current && animation !== 'Jump_Land' && (animation === 'Walk' || animation === 'Run')) {
         nextAnimation = 'Idle'
       }
     }
@@ -106,18 +159,29 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
       setPlayerAnimation(nextAnimation)
     }
 
-    rb.current.setLinvel({ x: movement.x, y: velocity.y, z: movement.z }, true)
+    rb.current.setLinvel({ x: movement.x, y: rb.current.linvel().y, z: movement.z }, true)
 
-    // Camera follow - using visual group position for interpolation
+    // Camera follow - Orbit logic
     const characterPosition = new THREE.Vector3()
     groupRef.current.getWorldPosition(characterPosition)
 
-    const cameraOffset = new THREE.Vector3(0, 5, 8)
+    // Calculate camera position based on orbit
+    const { yaw, pitch } = cameraRotation.current
+    const cameraOffset = new THREE.Vector3(0, 0, cameraDistance)
+    cameraOffset.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch)
+    cameraOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+
     const targetCameraPosition = characterPosition.clone().add(cameraOffset)
+
+    // Simple Camera Ground-Plane Clamp
+    // Ensure the camera never goes below y=0.5 to prevent "below ground" view
+    if (targetCameraPosition.y < 0.5) targetCameraPosition.y = 0.5
 
     state.camera.position.lerp(targetCameraPosition, 0.1)
     state.camera.lookAt(characterPosition.x, characterPosition.y + 1, characterPosition.z)
   })
+
+  if (gamePhase !== 'playing') return null
 
   return (
     <RigidBody
