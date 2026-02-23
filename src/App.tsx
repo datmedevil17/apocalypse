@@ -1,9 +1,11 @@
 import { Canvas } from "@react-three/fiber";
-import { KeyboardControls, type KeyboardControlsEntry } from "@react-three/drei";
+import { KeyboardControls, type KeyboardControlsEntry, Preload } from "@react-three/drei";
 import { Experience } from "./components/Experience";
 import "./App.css";
-import { useMemo } from "react";
+import { useMemo, Suspense } from "react";
 import { UI } from "./components/UI";
+import { Minimap } from "./components/Minimap";
+import { LoadingScreen } from "./components/LoadingScreen";
 
 const Controls = {
   forward: "forward",
@@ -22,6 +24,8 @@ const Controls = {
   action8: "action8",
   action9: "action9",
   action0: "action0",
+  callPet: "callPet",
+  petting: "petting",
 } as const;
 
 type ControlKeys = keyof typeof Controls;
@@ -45,20 +49,27 @@ function App() {
       { name: "action8", keys: ["Digit8"] },
       { name: "action9", keys: ["Digit9"] },
       { name: "action0", keys: ["Digit0"] },
+      { name: "callPet", keys: ["KeyY"] },
+      { name: "petting", keys: ["KeyG"] },
     ],
     []
   );
 
   return (
     <KeyboardControls map={map}>
+      <LoadingScreen />
       <UI />
       <Canvas
         shadows
-        camera={{ position: [5, 5, 5], fov: 45 }}
+        camera={{ position: [0, 5, 8], fov: 42 }}
         style={{ width: "100vw", height: "100vh" }}
       >
-        <Experience />
+        <Suspense fallback={null}>
+          <Experience />
+        </Suspense>
+        <Preload all />
       </Canvas>
+      <Minimap />
     </KeyboardControls>
   );
 }
