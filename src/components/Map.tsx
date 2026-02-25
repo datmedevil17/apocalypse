@@ -1,18 +1,26 @@
 import { RigidBody, CuboidCollider } from "@react-three/rapier";
 import * as THREE from "three";
-import { useTexture, useGLTF } from "@react-three/drei";
-import { useMemo } from "react";
+import { useGLTF, useTexture } from "@react-three/drei";
+import { useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
 
-const STREET_PATHS = {
+/* ═══════════════════════════════════════════════════
+   ZOMBIE COMBAT MAP — Night Arena
+   Layout: Cross-shaped (+) roads on a 200×200 ground
+   Center: asphalt combat zone with props
+   Outer: grassy terrain with dirt variation
+   ═══════════════════════════════════════════════════ */
+
+const STREET = {
     fourWay: "/environement/Street_4Way.gltf",
     straight: "/environement/Street_Straight.gltf",
-    straightCrack1: "/environement/Street_Straight_Crack1.gltf",
-    straightCrack2: "/environement/Street_Straight_Crack2.gltf",
+    crack1: "/environement/Street_Straight_Crack1.gltf",
+    crack2: "/environement/Street_Straight_Crack2.gltf",
     turn: "/environement/Street_Turn.gltf",
     tJunction: "/environement/Street_T.gltf",
 };
 
-const PROP_PATHS = {
+const PROP = {
     barrel: "/environement/Barrel.gltf",
     cinderBlock: "/environement/CinderBlock.gltf",
     containerGreen: "/environement/Container_Green.gltf",
@@ -30,267 +38,1344 @@ const PROP_PATHS = {
     trafficCone1: "/environement/TrafficCone_1.gltf",
     trafficCone2: "/environement/TrafficCone_2.gltf",
     trafficLight1: "/environement/TrafficLight_1.gltf",
-    trafficLight2: "/environement/TrafficLight_2.gltf",
     trashBag1: "/environement/TrashBag_1.gltf",
     trashBag2: "/environement/TrashBag_2.gltf",
-    pickup: "/environement/Vehicle_Pickup.gltf",
     pickupArmored: "/environement/Vehicle_Pickup_Armored.gltf",
-    sports: "/environement/Vehicle_Sports.gltf",
     sportsArmored: "/environement/Vehicle_Sports_Armored.gltf",
-    truck: "/environement/Vehicle_Truck.gltf",
     truckArmored: "/environement/Vehicle_Truck_Armored.gltf",
-    waterTower: "/environement/WaterTower.gltf",
-    wheel: "/environement/Wheel.gltf",
     wheelsStack: "/environement/Wheels_Stack.gltf",
 };
 
-const RoadSegment = ({ path, position, rotation = [0, 0, 0] }: { path: string, position: [number, number, number], rotation?: [number, number, number] }) => {
+/* ─── Reusable sub-components ─── */
+
+const RoadSegment = ({
+    path,
+    position,
+    rotation = [0, 0, 0],
+}: {
+    path: string;
+    position: [number, number, number];
+    rotation?: [number, number, number];
+}) => {
     const { scene } = useGLTF(path);
     const clone = useMemo(() => scene.clone(), [scene]);
-
-    // Lift road slightly above ground to prevent Z-fighting and jittering
-    const liftedPosition: [number, number, number] = [position[0], position[1] + 0.01, position[2]];
-
+    const lifted: [number, number, number] = [position[0], position[1] + 0.02, position[2]];
     return (
-        <group position={liftedPosition} rotation={rotation}>
+        <group position={lifted} rotation={rotation}>
             <primitive object={clone} />
-            {/* Box collider for the 8x8 segment, slightly thinner to avoid catching feet */}
             <CuboidCollider args={[4, 0.05, 4]} position={[0, -0.04, 0]} />
         </group>
     );
 };
 
-const Prop = ({ path, position, rotation = [0, 0, 0], scale = 1, colliderArgs }: {
-    path: string,
-    position: [number, number, number],
-    rotation?: [number, number, number],
-    scale?: number,
-    colliderArgs?: [number, number, number]
+const GLTFProp = ({
+    path,
+    position,
+    rotation = [0, 0, 0],
+    scale = 1,
+    colliderArgs,
+}: {
+    path: string;
+    position: [number, number, number];
+    rotation?: [number, number, number];
+    scale?: number;
+    colliderArgs?: [number, number, number];
 }) => {
     const { scene } = useGLTF(path);
     const clone = useMemo(() => scene.clone(), [scene]);
-
     return (
         <group position={position} rotation={rotation} scale={scale}>
             <primitive object={clone} />
-            {colliderArgs && (
-                <CuboidCollider args={colliderArgs} />
-            )}
+            {colliderArgs && <CuboidCollider args={colliderArgs} />}
         </group>
     );
 };
 
-const INTERSECTION_POINTS = [-72, -48, -24, 0, 24, 48, 72];
+/* ─── Procedural props (no GLTF needed) ─── */
 
-/** Returns true if the given world position sits on a road lane (within 4 units of a road centre) */
-const isOnRoad = (x: number, z: number): boolean => {
-    const onVerticalRoad = INTERSECTION_POINTS.some(ix => Math.abs(x - ix) < 4);
-    const onHorizontalRoad = INTERSECTION_POINTS.some(iz => Math.abs(z - iz) < 4);
-    return onVerticalRoad || onHorizontalRoad;
+/** Stacked sandbag wall – cheap geometry, great cover */
+const SandbagWall = ({
+    position,
+    rotation = [0, 0, 0],
+    length = 3,
+}: {
+    position: [number, number, number];
+    rotation?: [number, number, number];
+    length?: number;
+}) => {
+    const bags = useMemo(() => {
+        const out: { key: string; pos: [number, number, number] }[] = [];
+        const bw = 0.55;
+        const bh = 0.22;
+        const cols = Math.floor(length / bw);
+        for (let r = 0; r < 3; r++) {
+            const off = r % 2 === 0 ? 0 : bw * 0.5;
+            for (let c = 0; c < cols; c++) {
+                out.push({
+                    key: `${r}-${c}`,
+                    pos: [c * bw - (cols * bw) / 2 + off, r * bh + bh / 2, 0],
+                });
+            }
+        }
+        return out;
+    }, [length]);
+
+    return (
+        <group position={position} rotation={rotation}>
+            {bags.map((b) => (
+                <mesh key={b.key} position={b.pos} castShadow receiveShadow>
+                    <boxGeometry args={[0.5, 0.2, 0.3]} />
+                    <meshStandardMaterial color="#7a6842" roughness={0.95} />
+                </mesh>
+            ))}
+            <CuboidCollider args={[length / 2, 0.35, 0.2]} position={[0, 0.33, 0]} />
+        </group>
+    );
 };
 
-export const Map = ({ level = 3 }: { level?: number }) => {
-    // Textures for non-road areas
+/** Simple wooden crate */
+const WoodenCrate = ({
+    position,
+    rotation = [0, 0, 0],
+    size = 1,
+}: {
+    position: [number, number, number];
+    rotation?: [number, number, number];
+    size?: number;
+}) => (
+    <group position={position} rotation={rotation}>
+        <mesh castShadow receiveShadow>
+            <boxGeometry args={[size, size, size]} />
+            <meshStandardMaterial color="#6B4226" roughness={0.9} />
+        </mesh>
+        <CuboidCollider args={[size / 2, size / 2, size / 2]} />
+    </group>
+);
+
+/** Ground decal (blood / oil) */
+const GroundDecal = ({
+    position,
+    scale = 1,
+    color = "#440808",
+    opacity = 0.6,
+}: {
+    position: [number, number, number];
+    scale?: number;
+    color?: string;
+    opacity?: number;
+}) => (
+    <mesh
+        position={[position[0], 0.015, position[2]]}
+        rotation={[-Math.PI / 2, 0, (position[0] * 37) % (Math.PI * 2)]}
+    >
+        <circleGeometry args={[scale, 12]} />
+        <meshStandardMaterial
+            color={color}
+            roughness={1}
+            transparent
+            opacity={opacity}
+            depthWrite={false}
+            polygonOffset
+            polygonOffsetFactor={-1}
+        />
+    </mesh>
+);
+
+/** Swing Set — playground structure with chains and seats */
+const SwingSet = ({
+    position,
+    rotation = [0, 0, 0],
+    seats = 2,
+}: {
+    position: [number, number, number];
+    rotation?: [number, number, number];
+    seats?: number;
+}) => {
+    const width = seats * 1.6 + 0.6;
+    const halfW = width / 2;
+    const poleH = 3.2;
+    const barY = poleH;
+    const seatY = 0.45;
+    const chainColor = "#555555";
+    const poleColor = "#884422";
+    const seatColor = "#3a2a1a";
+
+    return (
+        <group position={position} rotation={rotation}>
+            {/* A-frame legs (front & back) */}
+            {[-halfW, halfW].map((x, i) => (
+                <group key={`leg-${i}`} position={[x, 0, 0]}>
+                    {/* front leg */}
+                    <mesh castShadow position={[0, poleH / 2, -0.6]} rotation={[0.15, 0, 0]}>
+                        <cylinderGeometry args={[0.06, 0.06, poleH, 6]} />
+                        <meshStandardMaterial color={poleColor} roughness={0.85} metalness={0.2} />
+                    </mesh>
+                    {/* back leg */}
+                    <mesh castShadow position={[0, poleH / 2, 0.6]} rotation={[-0.15, 0, 0]}>
+                        <cylinderGeometry args={[0.06, 0.06, poleH, 6]} />
+                        <meshStandardMaterial color={poleColor} roughness={0.85} metalness={0.2} />
+                    </mesh>
+                </group>
+            ))}
+            {/* Top crossbar */}
+            <mesh castShadow position={[0, barY, 0]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.05, 0.05, width, 8]} />
+                <meshStandardMaterial color={poleColor} roughness={0.8} metalness={0.3} />
+            </mesh>
+            {/* Swing seats with chains */}
+            {Array.from({ length: seats }).map((_, i) => {
+                const sx = -halfW + 0.8 + i * 1.6;
+                return (
+                    <group key={`seat-${i}`} position={[sx, 0, 0]}>
+                        {/* Left chain */}
+                        <mesh position={[-0.15, (barY + seatY) / 2, 0]}>
+                            <cylinderGeometry args={[0.015, 0.015, barY - seatY, 4]} />
+                            <meshStandardMaterial color={chainColor} metalness={0.8} roughness={0.3} />
+                        </mesh>
+                        {/* Right chain */}
+                        <mesh position={[0.15, (barY + seatY) / 2, 0]}>
+                            <cylinderGeometry args={[0.015, 0.015, barY - seatY, 4]} />
+                            <meshStandardMaterial color={chainColor} metalness={0.8} roughness={0.3} />
+                        </mesh>
+                        {/* Seat */}
+                        <mesh castShadow position={[0, seatY, 0]}>
+                            <boxGeometry args={[0.45, 0.04, 0.2]} />
+                            <meshStandardMaterial color={seatColor} roughness={0.9} />
+                        </mesh>
+                    </group>
+                );
+            })}
+            {/* Collider — thin so player can walk through between seats */}
+            <CuboidCollider args={[0.08, poleH / 2, 0.08]} position={[-halfW, poleH / 2, 0]} />
+            <CuboidCollider args={[0.08, poleH / 2, 0.08]} position={[halfW, poleH / 2, 0]} />
+        </group>
+    );
+};
+
+/** Shed — enclosed safe zone with walls, roof, and doorway. Zombies can't get in. */
+const Shed = ({
+    position,
+    rotation = [0, 0, 0],
+    width = 5,
+    depth = 4,
+    height = 3.2,
+    color = "#5a4a3a",
+    roofColor = "#3a3028",
+    doorSide = "front" as "front" | "back" | "left" | "right",
+}: {
+    position: [number, number, number];
+    rotation?: [number, number, number];
+    width?: number;
+    depth?: number;
+    height?: number;
+    color?: string;
+    roofColor?: string;
+    doorSide?: "front" | "back" | "left" | "right";
+}) => {
+    const wallThick = 0.15;
+    const halfW = width / 2;
+    const halfD = depth / 2;
+    const halfH = height / 2;
+    const doorW = 1.4;
+    const doorH = 2.2;
+
+    return (
+        <group position={position} rotation={rotation}>
+            {/* Floor */}
+            <mesh receiveShadow position={[0, 0.05, 0]}>
+                <boxGeometry args={[width, 0.1, depth]} />
+                <meshStandardMaterial color="#444" roughness={0.95} />
+            </mesh>
+
+            {/* Back wall (full) */}
+            {doorSide !== "back" && (
+                <mesh castShadow receiveShadow position={[0, halfH, -halfD]}>
+                    <boxGeometry args={[width, height, wallThick]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+            )}
+            {doorSide === "back" && (<>
+                <mesh castShadow receiveShadow position={[-(halfW - (halfW - doorW / 2) / 2), halfH, -halfD]}>
+                    <boxGeometry args={[(halfW - doorW / 2), height, wallThick]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+                <mesh castShadow receiveShadow position={[(halfW - (halfW - doorW / 2) / 2), halfH, -halfD]}>
+                    <boxGeometry args={[(halfW - doorW / 2), height, wallThick]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+                <mesh castShadow receiveShadow position={[0, doorH + (height - doorH) / 2, -halfD]}>
+                    <boxGeometry args={[doorW, height - doorH, wallThick]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+            </>)}
+
+            {/* Front wall with door opening */}
+            {doorSide !== "front" && (
+                <mesh castShadow receiveShadow position={[0, halfH, halfD]}>
+                    <boxGeometry args={[width, height, wallThick]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+            )}
+            {doorSide === "front" && (<>
+                <mesh castShadow receiveShadow position={[-(halfW - (halfW - doorW / 2) / 2), halfH, halfD]}>
+                    <boxGeometry args={[(halfW - doorW / 2), height, wallThick]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+                <mesh castShadow receiveShadow position={[(halfW - (halfW - doorW / 2) / 2), halfH, halfD]}>
+                    <boxGeometry args={[(halfW - doorW / 2), height, wallThick]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+                <mesh castShadow receiveShadow position={[0, doorH + (height - doorH) / 2, halfD]}>
+                    <boxGeometry args={[doorW, height - doorH, wallThick]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+            </>)}
+
+            {/* Left wall */}
+            {doorSide !== "left" && (
+                <mesh castShadow receiveShadow position={[-halfW, halfH, 0]}>
+                    <boxGeometry args={[wallThick, height, depth]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+            )}
+            {doorSide === "left" && (<>
+                <mesh castShadow receiveShadow position={[-halfW, halfH, -(halfD - (halfD - doorW / 2) / 2)]}>
+                    <boxGeometry args={[wallThick, height, (halfD - doorW / 2)]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+                <mesh castShadow receiveShadow position={[-halfW, halfH, (halfD - (halfD - doorW / 2) / 2)]}>
+                    <boxGeometry args={[wallThick, height, (halfD - doorW / 2)]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+                <mesh castShadow receiveShadow position={[-halfW, doorH + (height - doorH) / 2, 0]}>
+                    <boxGeometry args={[wallThick, height - doorH, doorW]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+            </>)}
+
+            {/* Right wall */}
+            {doorSide !== "right" && (
+                <mesh castShadow receiveShadow position={[halfW, halfH, 0]}>
+                    <boxGeometry args={[wallThick, height, depth]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+            )}
+            {doorSide === "right" && (<>
+                <mesh castShadow receiveShadow position={[halfW, halfH, -(halfD - (halfD - doorW / 2) / 2)]}>
+                    <boxGeometry args={[wallThick, height, (halfD - doorW / 2)]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+                <mesh castShadow receiveShadow position={[halfW, halfH, (halfD - (halfD - doorW / 2) / 2)]}>
+                    <boxGeometry args={[wallThick, height, (halfD - doorW / 2)]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+                <mesh castShadow receiveShadow position={[halfW, doorH + (height - doorH) / 2, 0]}>
+                    <boxGeometry args={[wallThick, height - doorH, doorW]} />
+                    <meshStandardMaterial color={color} roughness={0.92} />
+                </mesh>
+            </>)}
+
+            {/* Roof — slightly overhanging */}
+            <mesh castShadow receiveShadow position={[0, height + 0.06, 0]}>
+                <boxGeometry args={[width + 0.6, 0.12, depth + 0.6]} />
+                <meshStandardMaterial color={roofColor} roughness={0.9} metalness={0.1} />
+            </mesh>
+            {/* Flickering interior light */}
+            <FlickerLight position={[0, height - 0.5, 0]} color="#eebb77" intensity={2.5} distance={8}
+                seed={position[0] * 0.2 + position[2] * 0.7} />
+
+            {/* Wall colliders — solid walls the player and zombies can't pass through */}
+            {/* Back */}
+            {doorSide !== "back" && <CuboidCollider args={[halfW, halfH, wallThick / 2]} position={[0, halfH, -halfD]} />}
+            {doorSide === "back" && <>
+                <CuboidCollider args={[(halfW - doorW / 2) / 2, halfH, wallThick / 2]} position={[-(halfW - (halfW - doorW / 2) / 2), halfH, -halfD]} />
+                <CuboidCollider args={[(halfW - doorW / 2) / 2, halfH, wallThick / 2]} position={[(halfW - (halfW - doorW / 2) / 2), halfH, -halfD]} />
+                <CuboidCollider args={[doorW / 2, (height - doorH) / 2, wallThick / 2]} position={[0, doorH + (height - doorH) / 2, -halfD]} />
+            </>}
+            {/* Front */}
+            {doorSide !== "front" && <CuboidCollider args={[halfW, halfH, wallThick / 2]} position={[0, halfH, halfD]} />}
+            {doorSide === "front" && <>
+                <CuboidCollider args={[(halfW - doorW / 2) / 2, halfH, wallThick / 2]} position={[-(halfW - (halfW - doorW / 2) / 2), halfH, halfD]} />
+                <CuboidCollider args={[(halfW - doorW / 2) / 2, halfH, wallThick / 2]} position={[(halfW - (halfW - doorW / 2) / 2), halfH, halfD]} />
+                <CuboidCollider args={[doorW / 2, (height - doorH) / 2, wallThick / 2]} position={[0, doorH + (height - doorH) / 2, halfD]} />
+            </>}
+            {/* Left */}
+            {doorSide !== "left" && <CuboidCollider args={[wallThick / 2, halfH, halfD]} position={[-halfW, halfH, 0]} />}
+            {doorSide === "left" && <>
+                <CuboidCollider args={[wallThick / 2, halfH, (halfD - doorW / 2) / 2]} position={[-halfW, halfH, -(halfD - (halfD - doorW / 2) / 2)]} />
+                <CuboidCollider args={[wallThick / 2, halfH, (halfD - doorW / 2) / 2]} position={[-halfW, halfH, (halfD - (halfD - doorW / 2) / 2)]} />
+                <CuboidCollider args={[wallThick / 2, (height - doorH) / 2, doorW / 2]} position={[-halfW, doorH + (height - doorH) / 2, 0]} />
+            </>}
+            {/* Right */}
+            {doorSide !== "right" && <CuboidCollider args={[wallThick / 2, halfH, halfD]} position={[halfW, halfH, 0]} />}
+            {doorSide === "right" && <>
+                <CuboidCollider args={[wallThick / 2, halfH, (halfD - doorW / 2) / 2]} position={[halfW, halfH, -(halfD - (halfD - doorW / 2) / 2)]} />
+                <CuboidCollider args={[wallThick / 2, halfH, (halfD - doorW / 2) / 2]} position={[halfW, halfH, (halfD - (halfD - doorW / 2) / 2)]} />
+                <CuboidCollider args={[wallThick / 2, (height - doorH) / 2, doorW / 2]} position={[halfW, doorH + (height - doorH) / 2, 0]} />
+            </>}
+        </group>
+    );
+};
+
+/** Flickering broken-bulb light — stuttering on/off with random intensity */
+const FlickerLight = ({
+    position,
+    color = "#ffcc66",
+    intensity = 3,
+    distance = 12,
+    seed = 0,
+}: {
+    position: [number, number, number];
+    color?: string;
+    intensity?: number;
+    distance?: number;
+    seed?: number;
+}) => {
+    const lightRef = useRef<THREE.PointLight>(null);
+    useFrame(({ clock }) => {
+        if (!lightRef.current) return;
+        const t = clock.getElapsedTime() + seed * 100;
+        // Layered noise for broken-bulb stutter
+        const flick1 = Math.sin(t * 8.3) * Math.sin(t * 13.7);
+        const flick2 = Math.sin(t * 23.1 + 1.4) > 0.3 ? 1 : 0;
+        const flick3 = Math.sin(t * 3.2) * 0.5 + 0.5;
+        const combined = flick1 * flick2 * flick3;
+        // Occasionally go fully dark for a beat
+        const blackout = Math.sin(t * 1.7 + seed * 5) > 0.92 ? 0 : 1;
+        lightRef.current.intensity = Math.max(0, combined * intensity * blackout);
+    });
+    return <pointLight ref={lightRef} position={position} color={color} distance={distance} decay={2} castShadow={false} />;
+};
+
+/** Watchtower — elevated platform with ladder, zombies can't climb */
+const Watchtower = ({
+    position,
+    rotation = [0, 0, 0],
+}: {
+    position: [number, number, number];
+    rotation?: [number, number, number];
+}) => {
+    const legH = 2.65;
+    const platSize = 2;
+    const railH = 0.8;
+    const legColor = "#5a3a1a";
+    const platColor = "#4a3520";
+    const railColor = "#6a4a2a";
+
+    return (
+        <group position={position} rotation={rotation}>
+            {/* 4 legs */}
+            {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, z], i) => (
+                <mesh key={`leg-${i}`} castShadow position={[x * (platSize / 2 - 0.1), legH / 2, z * (platSize / 2 - 0.1)]}>
+                    <boxGeometry args={[0.2, legH, 0.2]} />
+                    <meshStandardMaterial color={legColor} roughness={0.9} />
+                </mesh>
+            ))}
+            {/* Platform */}
+            <mesh castShadow receiveShadow position={[0, legH, 0]}>
+                <boxGeometry args={[platSize, 0.15, platSize]} />
+                <meshStandardMaterial color={platColor} roughness={0.9} />
+            </mesh>
+            {/* Railings — 4 sides */}
+            {[
+                { p: [0, legH + railH / 2, -platSize / 2] as [number, number, number], s: [platSize, railH, 0.08] as [number, number, number] },
+                { p: [0, legH + railH / 2, platSize / 2] as [number, number, number], s: [platSize, railH, 0.08] as [number, number, number] },
+                { p: [-platSize / 2, legH + railH / 2, 0] as [number, number, number], s: [0.08, railH, platSize] as [number, number, number] },
+                { p: [platSize / 2, legH + railH / 2, 0] as [number, number, number], s: [0.08, railH, platSize] as [number, number, number] },
+            ].map((r, i) => (
+                <mesh key={`rail-${i}`} castShadow position={r.p}>
+                    <boxGeometry args={r.s} />
+                    <meshStandardMaterial color={railColor} roughness={0.85} transparent opacity={0.8} />
+                </mesh>
+            ))}
+            {/* Ladder */}
+            <group position={[platSize / 2 + 0.15, 0, 0]}>
+                {/* Side rails */}
+                <mesh castShadow position={[-0.01, legH / 2, -0.25]}>
+                    <boxGeometry args={[0.08, legH + 0.5, 0.06]} />
+                    <meshStandardMaterial color={legColor} roughness={0.9} />
+                </mesh>
+                <mesh castShadow position={[-0.01, legH / 2, 0.25]}>
+                    <boxGeometry args={[0.08, legH + 0.5, 0.06]} />
+                    <meshStandardMaterial color={legColor} roughness={0.9} />
+                </mesh>
+                {/* Rungs */}
+                {Array.from({ length: 5 }).map((_, i) => (
+                    <mesh key={`rung-${i}`} position={[-0.01, 0.5 + i * 0.45, 0]}>
+                        <boxGeometry args={[0.06, 0.04, 0.56]} />
+                        <meshStandardMaterial color={railColor} roughness={0.85} />
+                    </mesh>
+                ))}
+            </group>
+            {/* Leg colliders */}
+            {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, z], i) => (
+                <CuboidCollider key={`lc-${i}`} args={[0.12, legH / 2, 0.12]} position={[x * (platSize / 2 - 0.1), legH / 2, z * (platSize / 2 - 0.1)]} />
+            ))}
+            {/* Platform collider */}
+            <CuboidCollider args={[platSize / 2, 0.1, platSize / 2]} position={[0, legH, 0]} />
+            {/* Flickering broken bulb on platform */}
+            <FlickerLight position={[0, legH + 0.5, 0]} color="#ffcc66" intensity={3} distance={10}
+                seed={position[0] * 0.1 + position[2] * 0.3} />
+        </group>
+    );
+};
+
+/* ═══════════════════════════════════════════════════
+   MAP COMPONENT
+   ═══════════════════════════════════════════════════ */
+
+export const Map = ({ level: _level = 3 }: { level?: number }) => {
+    const R90: [number, number, number] = [0, Math.PI / 2, 0];
+    const R180: [number, number, number] = [0, Math.PI, 0];
+    const R270: [number, number, number] = [0, -Math.PI / 2, 0];
+
+    // Grass texture for outer terrain
     const grassTexture = useTexture("https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/terrain/grasslight-big.jpg");
     grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
-    grassTexture.repeat.set(20, 20);
+    grassTexture.repeat.set(30, 30);
 
-    const brickTexture = useTexture("https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/brick_diffuse.jpg");
-    brickTexture.wrapS = brickTexture.wrapT = THREE.RepeatWrapping;
-    brickTexture.repeat.set(10, 1);
+    const grassColor = new THREE.Color("#2d6b2d");
 
-    const brightness = 0.6;
-    const groundColor = new THREE.Color("#2e7d32").multiplyScalar(brightness);
+    /* ══════════════════════════════════════════════════════════════════
+       ROAD NETWORK — Full Urban Warzone Grid
+       
+       Layout (7 intersections connected by streets):
+       
+                          N
+                          │
+                 [NW]───[NC]───[NE]
+                  │       │       │
+            W ──[CW]───[CC]───[CE]── E
+                  │       │       │
+                 [SW]───[SC]───[SE]
+                          │
+                          S
+       
+       Grid spacing: 40 units between intersections
+       Each arm extends 24 units (3 segments) beyond outer intersections
+       Total road coverage: ~128 × ~128 units
+       ══════════════════════════════════════════════════════════════════ */
 
-    // Grid definition: 3x3 intersections with connecting roads
-    const roadLayout = useMemo(() => {
-        const segments = [];
-        const tileSize = 8;
-        const intersectionPoints = [-72, -48, -24, 0, 24, 48, 72];
+    const roads = useMemo(() => {
+        const s: JSX.Element[] = [];
+        const S = STREET;
+        const G = 40; // grid spacing
+        const G2 = 80; // far-east column
 
-        // Loop through the main grid area [-96, 96] to fill 200x200
-        for (let x = -96; x <= 96; x += tileSize) {
-            for (let z = -96; z <= 96; z += tileSize) {
-                const pos: [number, number, number] = [x, 0, z];
-                const isInterX = intersectionPoints.includes(x);
-                const isInterZ = intersectionPoints.includes(z);
+        // ── 9 INTERSECTIONS ──
+        // Center
+        s.push(<RoadSegment key="CC" path={S.fourWay} position={[0, 0, 0]} />);
+        // Inner ring
+        s.push(<RoadSegment key="NC" path={S.fourWay} position={[0, 0, -G]} />);
+        s.push(<RoadSegment key="SC" path={S.fourWay} position={[0, 0, G]} />);
+        s.push(<RoadSegment key="CE" path={S.fourWay} position={[G, 0, 0]} />);
+        s.push(<RoadSegment key="CW" path={S.fourWay} position={[-G, 0, 0]} />);
+        // Corners
+        s.push(<RoadSegment key="NE" path={S.fourWay} position={[G, 0, -G]} />);
+        s.push(<RoadSegment key="NW" path={S.fourWay} position={[-G, 0, -G]} />);
+        s.push(<RoadSegment key="SE" path={S.fourWay} position={[G, 0, G]} />);
+        s.push(<RoadSegment key="SW" path={S.fourWay} position={[-G, 0, G]} />);
 
-                // 4-Way Intersection
-                if (isInterX && isInterZ) {
-                    segments.push(<RoadSegment key={`${x}-${z}`} path={STREET_PATHS.fourWay} position={pos} />);
-                }
-                // Vertical Roads between intersections
-                else if (isInterX) {
-                    const crack = Math.random() > 0.8 ? (Math.random() > 0.5 ? STREET_PATHS.straightCrack1 : STREET_PATHS.straightCrack2) : STREET_PATHS.straight;
-                    segments.push(<RoadSegment key={`${x}-${z}`} path={crack} position={pos} />);
-                }
-                // Horizontal Roads between intersections
-                else if (isInterZ) {
-                    const crack = Math.random() > 0.8 ? (Math.random() > 0.5 ? STREET_PATHS.straightCrack1 : STREET_PATHS.straightCrack2) : STREET_PATHS.straight;
-                    segments.push(<RoadSegment key={`${x}-${z}`} path={crack} position={pos} rotation={[0, Math.PI / 2, 0]} />);
-                }
-            }
-        }
-        return segments;
-    }, []);
+        // Helper: fill straight road segments between two points
+        const fillRoad = (
+            prefix: string,
+            x1: number, z1: number,
+            x2: number, z2: number,
+        ) => {
+            const dx = x2 - x1;
+            const dz = z2 - z1;
+            const horiz = Math.abs(dx) > Math.abs(dz);
+            const dist = horiz ? Math.abs(dx) : Math.abs(dz);
+            const steps = Math.round(dist / 8) - 1; // exclude endpoints (intersections)
+            const sx = horiz ? Math.sign(dx) : 0;
+            const sz = horiz ? 0 : Math.sign(dz);
 
-    const worldProps = useMemo(() => {
-        const props = [];
-        const tileSize = 8;
-
-        // Difficulty Settings
-        const config = {
-            hasTrafficJam: level >= 2,
-            trafficJamDensity: level === 2 ? 1 : (level === 3 ? 2 : (level === 4 ? 4 : 6)),
-            debrisDensity: level === 1 ? 0.2 : (level === 2 ? 0.8 : (level === 3 ? 1 : (level === 4 ? 2 : 3))),
-            hasLandmarks: level >= 2,
-            hasBarricades: level >= 3,
-            streetLightDensity: level >= 2 ? 1 : 0.5,
-        };
-
-        // --- 1. Landmarks ---
-        if (config.hasLandmarks) {
-            // Water Tower in the top-left lot
-            props.push(<Prop key="water-tower" path={PROP_PATHS.waterTower} position={[-34, 0, -34]} scale={1.2} colliderArgs={[2.2, 5, 2.2]} />);
-
-            // Industrial Stack 1: Top Right Lot
-            props.push(<Prop key="container-1" path={PROP_PATHS.containerGreen} position={[34, 0, -34]} rotation={[0, Math.PI / 4, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
-            props.push(<Prop key="container-stack-1" path={PROP_PATHS.containerRed} position={[34.5, 2.6, -34.5]} rotation={[0, Math.PI / 4.2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
-            if (level >= 4) {
-                props.push(<Prop key="container-extra-1" path={PROP_PATHS.containerGreen} position={[38, 0, -38]} rotation={[0, -Math.PI / 8, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
-            }
-
-            // Industrial Stack 2: Bottom Left Lot
-            props.push(<Prop key="container-3" path={PROP_PATHS.containerGreen} position={[-34, 0, 34]} rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
-            props.push(<Prop key="pipes-2" path={PROP_PATHS.pipes} position={[-36, 0, 36]} rotation={[0, Math.PI / 4, 0]} colliderArgs={[1.8, 0.5, 2.5]} />);
-        }
-
-        // --- 2. Intersections & Street Furniture ---
-        INTERSECTION_POINTS.forEach(x => {
-            INTERSECTION_POINTS.forEach(z => {
-                // Traffic Lights
-                if ((INTERSECTION_POINTS.indexOf(x) + INTERSECTION_POINTS.indexOf(z)) % (level === 1 ? 4 : 2) === 0) {
-                    props.push(<Prop key={`tl-${x}-${z}`} path={PROP_PATHS.trafficLight1} position={[x + 4.5, 0, z + 4.5]} rotation={[0, Math.PI, 0]} colliderArgs={[0.1, 2, 0.1]} />);
-                    props.push(<Prop key={`tl2-${x}-${z}`} path={PROP_PATHS.trafficLight1} position={[x - 4.5, 0, z - 4.5]} colliderArgs={[0.1, 2, 0.1]} />);
-                }
-            });
-        });
-
-        // Traffic Jams
-        if (config.hasTrafficJam) {
-            const jamPoints = [[0, 0]];
-            if (level >= 3) jamPoints.push([48, 48], [-48, -48]);
-            if (level >= 4) jamPoints.push([24, -24], [-24, 24], [72, 0]);
-            if (level >= 5) jamPoints.push([0, 72], [0, -72], [72, 72], [-72, 72]);
-
-            jamPoints.forEach(([jx, jz], idx) => {
-                props.push(<Prop key={`jam-${idx}-1`} path={PROP_PATHS.pickupArmored} position={[jx + 1, 0, jz + 1]} rotation={[0, 0.5, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
-                props.push(<Prop key={`jam-${idx}-2`} path={PROP_PATHS.sports} position={[jx - 2, 0, jz + 2]} rotation={[0, -1.2, 0]} colliderArgs={[0.9, 0.6, 2.1]} />);
-                props.push(<Prop key={`jam-${idx}-3`} path={PROP_PATHS.truckArmored} position={[jx, 0, jz - 3]} rotation={[0, 0.1, 0]} colliderArgs={[1.4, 1.2, 3.8]} />);
-                if (level >= 4) {
-                    props.push(<Prop key={`jam-${idx}-4`} path={PROP_PATHS.trafficBarrier1} position={[jx + 3, 0, jz]} rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.8, 0.8, 0.2]} />);
-                }
-            });
-        }
-
-        // Street Lights along roads
-        const lightStep = tileSize * (level === 1 ? 4 : 2);
-        for (let i = -80; i <= 80; i += lightStep) {
-            if (!INTERSECTION_POINTS.includes(i)) {
-                props.push(<Prop key={`sl-v-${i}`} path={PROP_PATHS.streetLights} position={[4.5, 0, i]} rotation={[0, -Math.PI / 2, 0]} colliderArgs={[0.1, 2, 0.1]} />);
-                props.push(<Prop key={`sl-h-${i}`} path={PROP_PATHS.streetLights} position={[i, 0, 4.5]} colliderArgs={[0.1, 2, 0.1]} />);
-            }
-        }
-
-        // --- 3. Abandoned Vehicles & Debris ---
-        // Only off-road props (vehicles, trash bags) - NO stones/blocks on roads
-        const offRoadProps = [
-            { path: PROP_PATHS.barrel, scale: 1, colliderArgs: [0.35, 0.6, 0.35] },
-            { path: PROP_PATHS.trashBag1, scale: 1.8, colliderArgs: [0.7, 0.5, 0.7] },
-            { path: PROP_PATHS.trashBag2, scale: 2, colliderArgs: [0.9, 0.7, 0.9] },
-        ];
-        const onRoadProps = [
-            { path: PROP_PATHS.pickupArmored, colliderArgs: [1.1, 0.8, 2.4] },
-            { path: PROP_PATHS.sports, colliderArgs: [0.9, 0.6, 2.1] },
-            { path: PROP_PATHS.truckArmored, colliderArgs: [1.4, 1.2, 3.8] },
-        ];
-
-        // Add random debris based on density — stones/blocks only off-road
-        if (level > 1) {
-            const debrisCount = Math.floor(20 * config.debrisDensity);
-            for (let i = 0; i < debrisCount; i++) {
-                const rx = (Math.random() - 0.5) * 160;
-                const rz = (Math.random() - 0.5) * 160;
-                const onRoad = isOnRoad(rx, rz);
-
-                // Pick prop type: vehicles can go on roads, trash/barrels off-road only
-                const pool = onRoad ? onRoadProps : offRoadProps;
-                const item = pool[i % pool.length];
-
-                props.push(
-                    <Prop
-                        key={`debris-${i}`}
-                        path={item.path}
-                        position={[rx, 0, rz]}
-                        rotation={[0, Math.random() * Math.PI, 0]}
-                        scale={(item as any).scale || 1}
-                        colliderArgs={item.colliderArgs as any}
+            for (let i = 1; i <= steps; i++) {
+                const px = x1 + sx * i * 8;
+                const pz = z1 + sz * i * 8;
+                const variant = i % 5 === 0 ? S.crack1 : i % 7 === 0 ? S.crack2 : S.straight;
+                s.push(
+                    <RoadSegment
+                        key={`${prefix}-${i}`}
+                        path={variant}
+                        position={[px, 0, pz]}
+                        rotation={horiz ? R90 : [0, 0, 0]}
                     />
                 );
             }
+        };
+
+        // ── HORIZONTAL ROADS (9 connections) ──
+        // Top row: NW↔NC, NC↔NE
+        fillRoad("h-nw-nc", -G, -G, 0, -G);
+        fillRoad("h-nc-ne", 0, -G, G, -G);
+        // Middle row: CW↔CC, CC↔CE
+        fillRoad("h-cw-cc", -G, 0, 0, 0);
+        fillRoad("h-cc-ce", 0, 0, G, 0);
+        // Bottom row: SW↔SC, SC↔SE
+        fillRoad("h-sw-sc", -G, G, 0, G);
+        fillRoad("h-sc-se", 0, G, G, G);
+
+        // ── VERTICAL ROADS (6 connections) ──
+        // Left column: NW↔CW, CW↔SW
+        fillRoad("v-nw-cw", -G, -G, -G, 0);
+        fillRoad("v-cw-sw", -G, 0, -G, G);
+        // Center column: NC↔CC, CC↔SC
+        fillRoad("v-nc-cc", 0, -G, 0, 0);
+        fillRoad("v-cc-sc", 0, 0, 0, G);
+        // Right column: NE↔CE, CE↔SE
+        fillRoad("v-ne-ce", G, -G, G, 0);
+        fillRoad("v-ce-se", G, 0, G, G);
+
+        // ── OUTGOING ARMS (extending beyond the grid) ──
+        // North exits from NC
+        for (let i = 1; i <= 4; i++) {
+            const v = i % 3 === 0 ? S.crack1 : S.straight;
+            s.push(<RoadSegment key={`arm-n-${i}`} path={v} position={[0, 0, -G - i * 8]} />);
+        }
+        // South exits from SC
+        for (let i = 1; i <= 4; i++) {
+            const v = i % 4 === 0 ? S.crack2 : S.straight;
+            s.push(<RoadSegment key={`arm-s-${i}`} path={v} position={[0, 0, G + i * 8]} />);
+        }
+        // East exits from FE (now the far-east column)
+        for (let i = 1; i <= 2; i++) {
+            const v = i % 2 === 0 ? S.crack1 : S.straight;
+            s.push(<RoadSegment key={`arm-e-${i}`} path={v} position={[G2 + i * 8, 0, 0]} rotation={R90} />);
+        }
+        // West exits from CW
+        for (let i = 1; i <= 4; i++) {
+            const v = i % 4 === 0 ? S.crack2 : S.straight;
+            s.push(<RoadSegment key={`arm-w-${i}`} path={v} position={[-G - i * 8, 0, 0]} rotation={R90} />);
         }
 
-        // --- 4. Barricades & Roadblocks ---
-        if (config.hasBarricades) {
-            const barricadePoints = [[0, -32]];
-            if (level >= 4) barricadePoints.push([32, 0], [-32, 0], [0, 32]);
-            if (level >= 5) barricadePoints.push([64, 24], [-64, -24], [24, 64], [-24, -64]);
+        // ── RIGHT-SIDE EXPANSION — extra column at x=80 ──
+        // 3 new intersections: FNE (80,-40), FE (80,0), FSE (80,40)
+        s.push(<RoadSegment key="FNE" path={S.fourWay} position={[G2, 0, -G]} />);
+        s.push(<RoadSegment key="FE" path={S.fourWay} position={[G2, 0, 0]} />);
+        s.push(<RoadSegment key="FSE" path={S.fourWay} position={[G2, 0, G]} />);
 
-            barricadePoints.forEach(([bx, bz], idx) => {
-                props.push(<Prop key={`barr-${idx}-1`} path={PROP_PATHS.trafficBarrier1} position={[bx, 0, bz]} rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.8, 0.8, 0.2]} />);
-                props.push(<Prop key={`barr-${idx}-2`} path={PROP_PATHS.trafficBarrier2} position={[bx + 2, 0, bz + 0.5]} rotation={[0, Math.PI / 2.2, 0]} colliderArgs={[0.8, 0.6, 0.2]} />);
-                props.push(<Prop key={`plast-${idx}`} path={PROP_PATHS.plasticBarrier} position={[bx - 4, 0, bz]} rotation={[0, -0.2, 0]} colliderArgs={[0.8, 0.7, 0.2]} />);
-                props.push(<Prop key={`cone-${idx}`} path={PROP_PATHS.trafficCone1} position={[bx - 2, 0, bz + 1]} colliderArgs={[0.2, 0.4, 0.2]} />);
-            });
+        // Horizontal roads connecting old east column to far-east
+        fillRoad("h-ne-fne", G, -G, G2, -G);
+        fillRoad("h-ce-fe", G, 0, G2, 0);
+        fillRoad("h-se-fse", G, G, G2, G);
+
+        // Vertical roads in far-east column
+        fillRoad("v-fne-fe", G2, -G, G2, 0);
+        fillRoad("v-fe-fse", G2, 0, G2, G);
+
+        // North/south exit arms from far-east column
+        for (let i = 1; i <= 3; i++) {
+            const v = i % 2 === 0 ? S.crack2 : S.straight;
+            s.push(<RoadSegment key={`fne-n-${i}`} path={v} position={[G2, 0, -G - i * 8]} />);
+        }
+        for (let i = 1; i <= 3; i++) {
+            const v = i % 3 === 0 ? S.crack1 : S.straight;
+            s.push(<RoadSegment key={`fse-s-${i}`} path={v} position={[G2, 0, G + i * 8]} />);
         }
 
-        // Town entrance sign
-        props.push(<Prop key="town-sign" path={PROP_PATHS.townSign} position={[0, 0, 48]} rotation={[0, Math.PI, 0]} colliderArgs={[3, 2, 0.2]} />);
+        // ── DIAGONAL SIDE STREETS (dead-end alleys — blocked paths) ──
+        // NE corner: short east exit (now connects to far-east, no longer dead-end)
+        // FNE far-east exit
+        for (let i = 1; i <= 2; i++) {
+            s.push(<RoadSegment key={`fne-e-${i}`} path={S.crack2} position={[G2 + i * 8, 0, -G]} rotation={R90} />);
+        }
+        // FSE far-east exit
+        for (let i = 1; i <= 2; i++) {
+            s.push(<RoadSegment key={`fse-e-${i}`} path={S.crack1} position={[G2 + i * 8, 0, G]} rotation={R90} />);
+        }
+        // SW corner: short south exit
+        for (let i = 1; i <= 2; i++) {
+            s.push(<RoadSegment key={`sw-s-${i}`} path={S.crack1} position={[-G, 0, G + i * 8]} />);
+        }
+        // NW corner: short west exit
+        for (let i = 1; i <= 2; i++) {
+            s.push(<RoadSegment key={`nw-w-${i}`} path={S.straight} position={[-G - i * 8, 0, -G]} rotation={R90} />);
+        }
+        // SE corner: short south exit
+        for (let i = 1; i <= 2; i++) {
+            s.push(<RoadSegment key={`se-s-${i}`} path={S.straight} position={[G, 0, G + i * 8]} />);
+        }
 
-        return props;
-    }, [level]);
+        return s;
+    }, []);
+
+    /* ══════════════════════════════════════════════════════════════════
+       PROPS — Full warzone setup across the grid
+       Think: Black Hawk Down / World War Z street battles
+       ~50+ hand-placed tactical elements
+       ══════════════════════════════════════════════════════════════════ */
+    const props = useMemo(() => {
+        const p: JSX.Element[] = [];
+        const P = PROP;
+        const G = 40;
+        const G2 = 80;
+
+        // ═══════════════════════════════════════
+        // ZONE A: CENTER INTERSECTION — "The Killzone"
+        // Main combat hotspot. Vehicles crashed, heavy cover.
+        // ═══════════════════════════════════════
+
+        // Crashed vehicles forming a partial blockade
+        p.push(<GLTFProp key="z-car-1" path={P.truckArmored} position={[5, 0, -3]}
+            rotation={[0, 0.4, 0]} colliderArgs={[1.4, 1.2, 3.8]} />);
+        p.push(<GLTFProp key="z-car-2" path={P.sportsArmored} position={[-6, 0, 5]}
+            rotation={[0, -1.1, 0]} colliderArgs={[0.9, 0.6, 2.1]} />);
+
+        // Sandbag ring around center
+        p.push(<SandbagWall key="z-sb-1" position={[-8, 0, -6]} rotation={[0, 0.3, 0]} length={4} />);
+        p.push(<SandbagWall key="z-sb-2" position={[8, 0, 6]} rotation={[0, -0.2, 0]} length={4} />);
+
+        // Oil barrels (fire sources)
+        p.push(<GLTFProp key="z-barrel-1" path={P.barrel} position={[3, 0, 8]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="z-barrel-2" path={P.barrel} position={[-4, 0, -8]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="z-barrel-3" path={P.barrel} position={[3.7, 0, 7.2]} colliderArgs={[0.35, 0.6, 0.35]} />);
+
+        // Blood & chaos
+        p.push(<GLTFProp key="z-trash-1" path={P.trashBag1} position={[-2, 0, 3]} scale={1.5} colliderArgs={[0.6, 0.4, 0.6]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE B: NORTH — "Overrun Checkpoint"  
+        // Military fell here. Containers, barriers, dead vehicles.
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="b-container-1" path={P.containerGreen} position={[-4, 0, -G]}
+            rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        p.push(<GLTFProp key="b-container-2" path={P.containerRed} position={[5, 0, -G + 3]}
+            rotation={[0, 0.1, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        p.push(<GLTFProp key="b-barrier-1" path={P.trafficBarrier1} position={[0, 0, -G + 6]}
+            rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.8, 0.8, 0.2]} />);
+        p.push(<GLTFProp key="b-barrier-2" path={P.trafficBarrier2} position={[8, 0, -G - 3]}
+            rotation={[0, 0, 0]} colliderArgs={[0.8, 0.6, 0.2]} />);
+        p.push(<GLTFProp key="b-pickup" path={P.pickupArmored} position={[-8, 0, -G - 5]}
+            rotation={[0, 0.7, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
+        p.push(<GLTFProp key="b-cone-1" path={P.trafficCone1} position={[2, 0, -G + 4]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        p.push(<GLTFProp key="b-cone-2" path={P.trafficCone2} position={[-6, 0, -G + 5]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE C: EAST — "The Gauntlet"
+        // Long road with wrecked convoy. Fight through vehicles.
+        // ═══════════════════════════════════════
+
+        // Convoy of wrecks along east road
+        p.push(<GLTFProp key="c-truck-1" path={P.truckArmored} position={[G - 12, 0, 2]}
+            rotation={[0, Math.PI / 2 + 0.2, 0]} colliderArgs={[1.4, 1.2, 3.8]} />);
+        p.push(<GLTFProp key="c-pickup-1" path={P.pickupArmored} position={[G + 4, 0, -3]}
+            rotation={[0, Math.PI / 2 - 0.3, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
+        p.push(<GLTFProp key="c-sports-1" path={P.sportsArmored} position={[G - 5, 0, -5]}
+            rotation={[0, 0.8, 0]} colliderArgs={[0.9, 0.6, 2.1]} />);
+
+        // Cover spots
+        p.push(<SandbagWall key="c-sb-1" position={[G + 8, 0, 0]} rotation={[0, Math.PI / 2, 0]} length={3.5} />);
+        p.push(<WoodenCrate key="c-crate-1" position={[G - 8, 0.5, -6]} size={1} />);
+        p.push(<WoodenCrate key="c-crate-2" position={[G - 7.3, 0.5, -5.4]} rotation={[0, 0.5, 0]} size={0.8} />);
+
+        // Streetlights along east road
+        p.push(<GLTFProp key="c-light-1" path={P.streetLights} position={[G - 16, 0, 4.5]}
+            rotation={[0, Math.PI, 0]} colliderArgs={[0.05, 1.2, 0.05]} />);
+        p.push(<GLTFProp key="c-light-2" path={P.streetLights} position={[G + 12, 0, -4.5]}
+            colliderArgs={[0.05, 1.2, 0.05]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE D: SOUTH — "The Horde Breach"
+        // Barricades failed, zombies pouring through.
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="d-truck" path={P.truckArmored} position={[3, 0, G + 4]}
+            rotation={[0, 0.15, 0]} colliderArgs={[1.4, 1.2, 3.8]} />);
+        p.push(<GLTFProp key="d-pickup" path={P.pickupArmored} position={[-5, 0, G - 6]}
+            rotation={[0, -0.8, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
+        p.push(<SandbagWall key="d-sb-1" position={[-3, 0, G - 8]} rotation={[0, 0, 0]} length={5} />);
+        p.push(<SandbagWall key="d-sb-2" position={[6, 0, G + 8]} rotation={[0, 0.4, 0]} length={3} />);
+        p.push(<GLTFProp key="d-barrel-1" path={P.barrel} position={[-6, 0, G + 2]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="d-barrel-2" path={P.barrel} position={[-5.3, 0, G + 1.2]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="d-barrier" path={P.plasticBarrier} position={[8, 0, G - 4]}
+            rotation={[0, 0.3, 0]} colliderArgs={[0.8, 0.7, 0.2]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE E: WEST — "Supply Depot"
+        // Crates, pallets, barrels. Good loot area.
+        // ═══════════════════════════════════════
+
+        // Crate stacks
+        p.push(<WoodenCrate key="e-crate-1" position={[-G + 5, 0.5, -4]} size={1.2} />);
+        p.push(<WoodenCrate key="e-crate-2" position={[-G + 4.2, 0.5, -3.2]} rotation={[0, 0.6, 0]} size={1} />);
+        p.push(<WoodenCrate key="e-crate-3" position={[-G + 4.8, 1.5, -3.7]} size={0.8} />);
+        p.push(<WoodenCrate key="e-crate-4" position={[-G - 6, 0.5, 2]} size={1} />);
+        p.push(<WoodenCrate key="e-crate-5" position={[-G - 5.2, 0.5, 3]} rotation={[0, 0.3, 0]} size={0.9} />);
+
+        // Barrel row
+        p.push(<GLTFProp key="e-barrel-1" path={P.barrel} position={[-G + 8, 0, 5]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="e-barrel-2" path={P.barrel} position={[-G + 9, 0, 5.5]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="e-barrel-3" path={P.barrel} position={[-G + 8.5, 0, 6.2]} colliderArgs={[0.35, 0.6, 0.35]} />);
+
+        // Pallets
+        p.push(<GLTFProp key="e-pallet-1" path={P.pallet} position={[-G - 4, 0, -6]}
+            rotation={[0, 0.2, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        p.push(<GLTFProp key="e-pallet-2" path={P.palletBroken} position={[-G + 6, 0, 8]}
+            colliderArgs={[0.6, 0.1, 0.6]} />);
+        p.push(<GLTFProp key="e-pipes" path={P.pipes} position={[-G - 3, 0, 7]}
+            rotation={[0, 0.8, 0]} colliderArgs={[1.8, 0.5, 2.5]} />);
+
+        // Cover
+        p.push(<SandbagWall key="e-sb-1" position={[-G - 6, 0, 0]} rotation={[0, Math.PI / 2, 0]} length={3.5} />);
+
+        // ═══════════════════════════════════════
+        // ZONE F: NE CORNER — "Sniper's Nest"
+        // Elevated container stack, overwatch position.
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="f-cont-1" path={P.containerGreen} position={[G + 3, 0, -G - 3]}
+            rotation={[0, Math.PI / 4, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        p.push(<GLTFProp key="f-cont-2" path={P.containerRed} position={[G + 3.5, 2.6, -G - 2.5]}
+            rotation={[0, Math.PI / 4.2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        p.push(<GLTFProp key="f-tires" path={P.wheelsStack} position={[G - 4, 0, -G + 5]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        p.push(<GLTFProp key="f-barrier" path={P.trafficBarrier1} position={[G + 8, 0, -G + 2]}
+            rotation={[0, 0, 0]} colliderArgs={[1.8, 0.8, 0.2]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE G: NW CORNER — "Abandoned Camp"
+        // Couch, trash, signs of previous survivors.
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="g-couch" path={P.couch} position={[-G + 4, 0, -G + 4]}
+            rotation={[0, 0.3, 0]} colliderArgs={[1, 0.5, 0.5]} />);
+        p.push(<GLTFProp key="g-trash-1" path={P.trashBag1} position={[-G - 3, 0, -G + 2]}
+            scale={1.8} colliderArgs={[0.7, 0.5, 0.7]} />);
+        p.push(<GLTFProp key="g-trash-2" path={P.trashBag2} position={[-G + 2, 0, -G - 4]}
+            scale={2} colliderArgs={[0.9, 0.7, 0.9]} />);
+        p.push(<GLTFProp key="g-barrel" path={P.barrel} position={[-G - 5, 0, -G - 2]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="g-hydrant" path={P.fireHydrant} position={[-G + 4.5, 0, -G - 4.5]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        p.push(<GLTFProp key="g-sign" path={P.townSign} position={[-G - 8, 0, -G]}
+            rotation={[0, Math.PI / 2, 0]} colliderArgs={[3, 2, 0.2]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE H: SW CORNER — "The Pit" 
+        // Vehicles piled, tight CQB.
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="h-sports" path={P.sportsArmored} position={[-G - 3, 0, G + 4]}
+            rotation={[0, -0.5, 0]} colliderArgs={[0.9, 0.6, 2.1]} />);
+        p.push(<GLTFProp key="h-pickup" path={P.pickupArmored} position={[-G + 5, 0, G - 4]}
+            rotation={[0, 1.2, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
+        p.push(<SandbagWall key="h-sb" position={[-G, 0, G + 8]} rotation={[0, 0.1, 0]} length={5} />);
+        p.push(<WoodenCrate key="h-crate" position={[-G + 3, 0.5, G + 6]} rotation={[0, 0.7, 0]} size={1} />);
+        p.push(<GLTFProp key="h-cinder-1" path={P.cinderBlock} position={[-G - 6, 0, G + 2]}
+            colliderArgs={[0.3, 0.15, 0.15]} />);
+        p.push(<GLTFProp key="h-cinder-2" path={P.cinderBlock} position={[-G - 5.5, 0.3, G + 2.2]}
+            rotation={[0, 0.5, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE I: SE CORNER — "The Furnace"
+        // Everything's on fire. Maximum chaos.
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="i-truck" path={P.truckArmored} position={[G + 4, 0, G + 2]}
+            rotation={[0, -0.3, 0]} colliderArgs={[1.4, 1.2, 3.8]} />);
+        p.push(<GLTFProp key="i-pickup" path={P.pickupArmored} position={[G - 6, 0, G + 6]}
+            rotation={[0, 0.9, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
+        // Barrel fire cluster
+        p.push(<GLTFProp key="i-barrel-1" path={P.barrel} position={[G + 8, 0, G - 3]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="i-barrel-2" path={P.barrel} position={[G + 9, 0, G - 2.5]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="i-barrel-3" path={P.barrel} position={[G + 8.3, 0, G - 1.8]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="i-tires" path={P.wheelsStack} position={[G - 3, 0, G - 5]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        p.push(<GLTFProp key="i-hydrant" path={P.fireHydrant} position={[G + 4.5, 0, G + 8]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE J: FAR-EAST NE — "Quarantine Yard"
+        // Containers, barriers, medical waste
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="j-truck" path={P.truckArmored} position={[G2 + 6, 0, -G - 4]}
+            rotation={[0, 0.6, 0]} colliderArgs={[1.4, 1.2, 3.8]} />);
+        p.push(<GLTFProp key="j-cont" path={P.containerGreen} position={[G2 + 8, 0, -G + 8]}
+            rotation={[0, 0.4, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        p.push(<GLTFProp key="j-barrel-1" path={P.barrel} position={[G2 - 5, 0, -G - 6]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="j-barrel-2" path={P.barrel} position={[G2 - 4, 0, -G - 7]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="j-barrier" path={P.plasticBarrier} position={[G2 + 3, 0, -G + 5]}
+            rotation={[0, 0.8, 0]} colliderArgs={[0.8, 0.7, 0.2]} />);
+        p.push(<GLTFProp key="j-cinder" path={P.cinderBlock} position={[G2 - 8, 0, -G + 7]} colliderArgs={[0.6, 0.3, 0.4]} />);
+        p.push(<GLTFProp key="j-pallet" path={P.pallet} position={[G2 + 10, 0, -G - 2]} colliderArgs={[0.8, 0.5, 0.6]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE K: FAR-EAST CENTER — "Highway Ambush"
+        // Wrecked vehicles blocking the road
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="k-sports" path={P.sportsArmored} position={[G2 + 5, 0, -3]}
+            rotation={[0, -0.8, 0]} colliderArgs={[1.2, 0.6, 2.5]} />);
+        p.push(<GLTFProp key="k-pickup" path={P.pickupArmored} position={[G2 - 6, 0, 5]}
+            rotation={[0, 1.2, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
+        p.push(<GLTFProp key="k-cone1" path={P.trafficCone1} position={[G2 + 8, 0, 3]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        p.push(<GLTFProp key="k-cone2" path={P.trafficCone2} position={[G2 - 3, 0, -6]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        p.push(<GLTFProp key="k-trash1" path={P.trashBag1} position={[G2 + 9, 0, -5]} scale={1.3} colliderArgs={[0.5, 0.3, 0.5]} />);
+        p.push(<GLTFProp key="k-couch" path={P.couch} position={[G2 + 12, 0, 6]}
+            rotation={[0, 0.4, 0]} colliderArgs={[0.8, 0.5, 0.4]} />);
+        p.push(<GLTFProp key="k-hydrant" path={P.fireHydrant} position={[G2 - 4, 0, 8]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        // ═══════════════════════════════════════
+        // ZONE L: FAR-EAST SE — "Burning Depot"
+        // Second fire zone with supplies
+        // ═══════════════════════════════════════
+
+        p.push(<GLTFProp key="l-truck" path={P.pickupArmored} position={[G2 + 4, 0, G + 5]}
+            rotation={[0, -1.5, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
+        p.push(<GLTFProp key="l-cont" path={P.containerRed} position={[G2 + 10, 0, G - 6]}
+            rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        p.push(<GLTFProp key="l-barrel1" path={P.barrel} position={[G2 - 5, 0, G + 8]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="l-barrel2" path={P.barrel} position={[G2 - 4, 0, G + 9]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="l-barrel3" path={P.barrel} position={[G2 - 3.5, 0, G + 7.5]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        p.push(<GLTFProp key="l-tires" path={P.wheelsStack} position={[G2 + 7, 0, G + 8]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        p.push(<GLTFProp key="l-pipe" path={P.pipes} position={[G2 + 3, 0, G - 3]}
+            rotation={[0, 0.7, 0]} colliderArgs={[0.1, 0.1, 1.5]} />);
+        p.push(<GLTFProp key="l-sign" path={P.townSign} position={[G2 - 8, 0, G + 3]}
+            rotation={[0, -0.3, 0]} colliderArgs={[0.4, 1.2, 0.1]} />);
+
+        // ═══════════════════════════════════════
+        // ROAD-CONNECTING PROPS — along mid-segments 
+        // Streetlights, cones, debris along connecting roads
+        // ═══════════════════════════════════════
+
+        // Streetlights along major roads (16 total, scattered)
+        const lightPositions: [number, number, number][] = [
+            [4.5, 0, -12], [-4.5, 0, -28], [4.5, 0, 12], [-4.5, 0, 28],
+            [12, 0, 4.5], [28, 0, -4.5], [-12, 0, -4.5], [-28, 0, 4.5],
+            [G + 12, 0, 4.5], [-G - 12, 0, -4.5],
+            [4.5, 0, -G - 16], [-4.5, 0, G + 16],
+            // Far-east column streetlights
+            [G2 + 4.5, 0, -20], [G2 - 4.5, 0, 20],
+            [60, 0, -4.5], [60, 0, G + 4.5],
+        ];
+        lightPositions.forEach(([lx, ly, lz], i) => {
+            p.push(<GLTFProp key={`sl-${i}`} path={P.streetLights}
+                position={[lx, ly, lz]}
+                rotation={[0, i % 2 === 0 ? -Math.PI / 2 : Math.PI / 2, 0]}
+                colliderArgs={[0.05, 1.2, 0.05]} />);
+        });
+
+        // Traffic lights at key intersections
+        p.push(<GLTFProp key="tl-1" path={P.trafficLight1} position={[4.5, 0, -G + 4.5]}
+            rotation={R180} colliderArgs={[0.1, 2, 0.1]} />);
+        p.push(<GLTFProp key="tl-2" path={P.trafficLight1} position={[G + 4.5, 0, 4.5]}
+            rotation={R270} colliderArgs={[0.1, 2, 0.1]} />);
+        p.push(<GLTFProp key="tl-3" path={P.trafficLight1} position={[-4.5, 0, G - 4.5]}
+            colliderArgs={[0.1, 2, 0.1]} />);
+        p.push(<GLTFProp key="tl-4" path={P.trafficLight1} position={[-G - 4.5, 0, -4.5]}
+            rotation={R90} colliderArgs={[0.1, 2, 0.1]} />);
+
+        // Random debris along roads
+        p.push(<GLTFProp key="rd-trash-1" path={P.trashBag1} position={[16, 0, -5]} scale={1.3} colliderArgs={[0.5, 0.3, 0.5]} />);
+        p.push(<GLTFProp key="rd-trash-2" path={P.trashBag2} position={[-20, 0, 3]} scale={1.5} colliderArgs={[0.6, 0.4, 0.6]} />);
+        p.push(<GLTFProp key="rd-trash-3" path={P.trashBag1} position={[5, 0, 24]} scale={1.4} colliderArgs={[0.5, 0.3, 0.5]} />);
+        p.push(<GLTFProp key="rd-cone-1" path={P.trafficCone1} position={[20, 0, 2]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        p.push(<GLTFProp key="rd-cone-2" path={P.trafficCone2} position={[-15, 0, -3]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        p.push(<GLTFProp key="rd-cone-3" path={P.trafficCone1} position={[3, 0, -20]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        // ═══════════════════════════════════════
+        // DEAD-END ALLEY BLOCKADES
+        // Containers/barriers at the ends of side streets
+        // ═══════════════════════════════════════
+
+        // NE alley end (no longer dead — now connects to far-east column)
+        // NW alley end (west exit blocked)
+        p.push(<GLTFProp key="de-nw" path={P.containerGreen} position={[-G - 20, 0, -G]}
+            rotation={[0, -0.2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        // SW alley end (south exit blocked)
+        p.push(<GLTFProp key="de-sw" path={P.trafficBarrier1} position={[-G - 1, 0, G + 18]}
+            rotation={[0, 0, 0]} colliderArgs={[1.8, 0.8, 0.2]} />);
+        p.push(<GLTFProp key="de-sw-2" path={P.plasticBarrier} position={[-G + 2, 0, G + 19]}
+            rotation={[0, 0.3, 0]} colliderArgs={[0.8, 0.7, 0.2]} />);
+        // SE alley end (south exit blocked)
+        p.push(<GLTFProp key="de-se" path={P.trafficBarrier2} position={[G, 0, G + 18]}
+            rotation={[0, 0, 0]} colliderArgs={[0.8, 0.6, 0.2]} />);
+
+        // ═══════════════════════════════════════
+        // MAIN EXIT BARRICADES (road arm ends)
+        // ═══════════════════════════════════════
+
+        // North exit
+        p.push(<GLTFProp key="exit-n-1" path={P.trafficBarrier1} position={[-2, 0, -G - 34]}
+            rotation={[0, 0, 0]} colliderArgs={[1.8, 0.8, 0.2]} />);
+        p.push(<GLTFProp key="exit-n-2" path={P.plasticBarrier} position={[3, 0, -G - 35]}
+            rotation={[0, 0.2, 0]} colliderArgs={[0.8, 0.7, 0.2]} />);
+        // South exit
+        p.push(<GLTFProp key="exit-s-1" path={P.trafficBarrier2} position={[1, 0, G + 34]}
+            rotation={[0, 0.1, 0]} colliderArgs={[0.8, 0.6, 0.2]} />);
+        p.push(<GLTFProp key="exit-s-2" path={P.containerRed} position={[-4, 0, G + 36]}
+            rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        // East exit (now at far-east column exit, x~92)
+        p.push(<GLTFProp key="exit-e-1" path={P.containerGreen} position={[G2 + 16, 0, 2]}
+            rotation={[0, 0, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        p.push(<GLTFProp key="exit-e-2" path={P.trafficBarrier1} position={[G2 + 16, 0, -4]}
+            rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.8, 0.8, 0.2]} />);
+        // Far-east north exit
+        p.push(<GLTFProp key="exit-fen-1" path={P.trafficBarrier2} position={[G2 + 16, 0, -G + 1]}
+            rotation={[0, 0, 0]} colliderArgs={[0.8, 0.6, 0.2]} />);
+        // Far-east south exit
+        p.push(<GLTFProp key="exit-fes-1" path={P.trafficBarrier1} position={[G2 + 16, 0, G - 1]}
+            rotation={[0, 0, 0]} colliderArgs={[1.8, 0.8, 0.2]} />);
+        // West exit
+        p.push(<GLTFProp key="exit-w-1" path={P.containerRed} position={[-G - 34, 0, -1]}
+            rotation={[0, 0.1, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+
+        return p;
+    }, []);
+
+    /* ── Ground decals — blood splatter, oil, and scorch marks ── */
+    const decals = useMemo(() => {
+        const d: JSX.Element[] = [];
+        const G = 40;
+
+        // Center killzone — heavy blood
+        d.push(<GroundDecal key="blood-c1" position={[2, 0, -4]} scale={0.8} color="#3a0505" />);
+        d.push(<GroundDecal key="blood-c2" position={[-3, 0, 6]} scale={1.1} color="#440808" />);
+        d.push(<GroundDecal key="blood-c3" position={[7, 0, 2]} scale={0.6} color="#350404" />);
+        d.push(<GroundDecal key="blood-c4" position={[-5, 0, -2]} scale={0.5} color="#3a0505" />);
+
+        // Center oil stains
+        d.push(<GroundDecal key="oil-c1" position={[4, 0, -2]} scale={1.4} color="#111111" opacity={0.4} />);
+        d.push(<GroundDecal key="oil-c2" position={[-5, 0, 4]} scale={1.0} color="#0a0a0a" opacity={0.35} />);
+
+        // North intersection — overrun checkpoint
+        d.push(<GroundDecal key="blood-n1" position={[2, 0, -G + 3]} scale={1.3} color="#440808" />);
+        d.push(<GroundDecal key="blood-n2" position={[-6, 0, -G - 2]} scale={0.9} color="#3a0505" />);
+        d.push(<GroundDecal key="oil-n1" position={[-7, 0, -G - 4]} scale={1.6} color="#111111" opacity={0.4} />);
+
+        // East — gauntlet vehicle oil trail
+        d.push(<GroundDecal key="oil-e1" position={[G - 10, 0, 1]} scale={1.8} color="#0a0a0a" opacity={0.35} />);
+        d.push(<GroundDecal key="oil-e2" position={[G + 2, 0, -2]} scale={1.2} color="#111111" opacity={0.4} />);
+        d.push(<GroundDecal key="blood-e1" position={[G + 6, 0, 3]} scale={0.7} color="#350404" />);
+
+        // South — horde breach
+        d.push(<GroundDecal key="blood-s1" position={[-2, 0, G - 4]} scale={1.0} color="#440808" />);
+        d.push(<GroundDecal key="blood-s2" position={[4, 0, G + 6]} scale={1.5} color="#3a0505" />);
+        d.push(<GroundDecal key="blood-s3" position={[-3, 0, G + 2]} scale={0.6} color="#350404" />);
+
+        // West — supply depot
+        d.push(<GroundDecal key="oil-w1" position={[-G + 6, 0, 4]} scale={1.4} color="#111111" opacity={0.4} />);
+
+        // SE corner — furnace (scorch marks)
+        d.push(<GroundDecal key="scorch-se1" position={[G + 6, 0, G - 1]} scale={2} color="#0d0d0d" opacity={0.5} />);
+        d.push(<GroundDecal key="scorch-se2" position={[G + 3, 0, G + 4]} scale={1.8} color="#111111" opacity={0.45} />);
+        d.push(<GroundDecal key="blood-se1" position={[G - 4, 0, G + 5]} scale={1.1} color="#440808" />);
+
+        // NE — sniper nest
+        d.push(<GroundDecal key="oil-ne1" position={[G + 2, 0, -G - 2]} scale={1.5} color="#0a0a0a" opacity={0.35} />);
+        d.push(<GroundDecal key="blood-ne1" position={[G - 3, 0, -G + 4]} scale={0.8} color="#3a0505" />);
+
+        // SW — the pit
+        d.push(<GroundDecal key="blood-sw1" position={[-G + 3, 0, G - 3]} scale={1.0} color="#440808" />);
+        d.push(<GroundDecal key="oil-sw1" position={[-G - 2, 0, G + 3]} scale={1.3} color="#111111" opacity={0.4} />);
+
+        // NW — abandoned camp
+        d.push(<GroundDecal key="blood-nw1" position={[-G + 2, 0, -G + 3]} scale={0.7} color="#350404" />);
+
+        // Connecting road blood trails
+        d.push(<GroundDecal key="blood-r1" position={[16, 0, -5]} scale={0.5} color="#3a0505" />);
+        d.push(<GroundDecal key="blood-r2" position={[-20, 0, 2]} scale={0.6} color="#440808" />);
+        d.push(<GroundDecal key="blood-r3" position={[4, 0, 20]} scale={0.7} color="#350404" />);
+        d.push(<GroundDecal key="blood-r4" position={[-5, 0, -18]} scale={0.4} color="#3a0505" />);
+
+        // Far-east zones (J, K, L)
+        const G2 = 80;
+        d.push(<GroundDecal key="blood-j1" position={[G2 + 2, 0, -G - 3]} scale={1.0} color="#440808" />);
+        d.push(<GroundDecal key="oil-j1" position={[G2 - 4, 0, -G + 5]} scale={1.5} color="#0a0a0a" opacity={0.35} />);
+        d.push(<GroundDecal key="blood-k1" position={[G2 + 3, 0, 2]} scale={0.9} color="#3a0505" />);
+        d.push(<GroundDecal key="oil-k1" position={[G2 - 2, 0, -4]} scale={1.6} color="#111111" opacity={0.4} />);
+        d.push(<GroundDecal key="scorch-l1" position={[G2 + 5, 0, G + 2]} scale={1.8} color="#0d0d0d" opacity={0.5} />);
+        d.push(<GroundDecal key="blood-l1" position={[G2 - 3, 0, G + 6]} scale={1.2} color="#440808" />);
+        d.push(<GroundDecal key="oil-l1" position={[G2 + 8, 0, G - 4]} scale={1.3} color="#111111" opacity={0.4} />);
+        // Right-side road blood trails
+        d.push(<GroundDecal key="blood-r5" position={[56, 0, -3]} scale={0.6} color="#3a0505" />);
+        d.push(<GroundDecal key="blood-r6" position={[64, 0, G + 2]} scale={0.5} color="#350404" />);
+        d.push(<GroundDecal key="blood-r7" position={[G2 + 4, 0, -20]} scale={0.4} color="#440808" />);
+
+        return d;
+    }, []);
 
     return (
         <>
-            {/* Ground */}
+            {/* ── Ground: large grassy terrain ── */}
             <RigidBody type="fixed" name="ground" restitution={0} friction={1}>
                 <mesh receiveShadow position={[0, -0.5, 0]}>
                     <boxGeometry args={[200, 1, 200]} />
-                    <meshStandardMaterial map={grassTexture} color={groundColor} />
+                    <meshStandardMaterial
+                        map={grassTexture}
+                        color={grassColor}
+                        roughness={0.85}
+                        envMapIntensity={0.3}
+                    />
                 </mesh>
                 <CuboidCollider args={[100, 0.5, 100]} position={[0, -0.5, 0]} />
             </RigidBody>
 
-            {/* Roads */}
+            {/* ── Asphalt strips — ONLY under actual road segments ── */}
+            {/* Horizontal road strips (3 rows, now extending to x=88 for far-east column) */}
+            {[-40, 0, 40].map((z) => (
+                <mesh key={`asph-h-${z}`} receiveShadow position={[20, -0.01, z]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <planeGeometry args={[176, 10]} />
+                    <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+                </mesh>
+            ))}
+            {/* Vertical road strips (original 3 columns + far-east at x=80) */}
+            {[-40, 0, 40, 80].map((x) => (
+                <mesh key={`asph-v-${x}`} receiveShadow position={[x, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <planeGeometry args={[10, 96]} />
+                    <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+                </mesh>
+            ))}
+
+            {/* ── Dead-end alley asphalt strips ── */}
+            {/* FNE far-east north exit */}
+            <mesh receiveShadow position={[92, -0.01, -40]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[16, 10]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* FNE far-east south exit */}
+            <mesh receiveShadow position={[92, -0.01, 40]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[16, 10]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* NW west exit */}
+            <mesh receiveShadow position={[-56, -0.01, -40]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[20, 10]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* SW south exit */}
+            <mesh receiveShadow position={[-40, -0.01, 56]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[10, 20]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* SE south exit */}
+            <mesh receiveShadow position={[40, -0.01, 56]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[10, 20]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* Far-east N arm */}
+            <mesh receiveShadow position={[80, -0.01, -66]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[10, 30]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* Far-east S arm */}
+            <mesh receiveShadow position={[80, -0.01, 66]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[10, 30]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* Far-east E arm */}
+            <mesh receiveShadow position={[92, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[16, 10]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+
+            {/* ── Road arm asphalt strips extending beyond grid ── */}
+            {/* North arm */}
+            <mesh receiveShadow position={[0, -0.01, -68]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[10, 40]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* South arm */}
+            <mesh receiveShadow position={[0, -0.01, 68]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[10, 40]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+            {/* West arm */}
+            <mesh receiveShadow position={[-68, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[40, 10]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
+            </mesh>
+
+            {/* ── Dirt edges along roadsides ── */}
+            {[-40, 0, 40].map((z) => (
+                <mesh key={`dirt-h-${z}`} receiveShadow position={[20, 0.02, z]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <planeGeometry args={[180, 16]} />
+                    <meshStandardMaterial color="#3a3525" roughness={1} transparent opacity={0.3} depthWrite={false} polygonOffset polygonOffsetFactor={-2} />
+                </mesh>
+            ))}
+            {[-40, 0, 40, 80].map((x) => (
+                <mesh key={`dirt-v-${x}`} receiveShadow position={[x, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <planeGeometry args={[16, 100]} />
+                    <meshStandardMaterial color="#3a3525" roughness={1} transparent opacity={0.3} depthWrite={false} polygonOffset polygonOffsetFactor={-2} />
+                </mesh>
+            ))}
+
+            {/* ── Lush grass patches on outer ground ── */}
+            {[
+                [-60, -50], [55, -45], [-45, 60], [65, 55],
+                [-70, 10], [50, -70], [-30, -75], [75, 30],
+                [-80, -30], [80, -20], [-55, 80], [70, 75],
+                [-90, 50], [85, -60], [-25, 85], [30, -85],
+                [-75, -70], [78, 65], [-85, -55], [60, -80],
+            ].map(([x, z], i) => (
+                <mesh key={`grass-patch-${i}`} receiveShadow position={[x, 0.04, z]} rotation={[-Math.PI / 2, 0, i * 0.7]}>
+                    <circleGeometry args={[10 + (i % 4) * 4, 16]} />
+                    <meshStandardMaterial
+                        color={i % 3 === 0 ? "#2a5e2a" : i % 3 === 1 ? "#336633" : "#1f5025"}
+                        roughness={0.9}
+                        transparent
+                        opacity={0.7}
+                        depthWrite={false}
+                        polygonOffset
+                        polygonOffsetFactor={-3}
+                    />
+                </mesh>
+            ))}
+
+            {/* ── Roads ── */}
             <RigidBody type="fixed" name="roads">
-                {roadLayout}
+                {roads}
             </RigidBody>
 
-            {/* Environment Props */}
+            {/* ── Props ── */}
             <RigidBody type="fixed" name="props">
-                {worldProps}
+                {props}
             </RigidBody>
 
-            {/* Boundary Walls - Using thin colliders at the edges */}
+            {/* ── Ground decals (blood + oil) ── */}
+            {decals}
+
+            {/* ── Swings — in roadside grass blocks between roads ── */}
+            <RigidBody type="fixed" name="swings">
+                {/* Block between x=-40..0, z=-40..0 */}
+                <SwingSet position={[-25, 0, -25]} rotation={[0, 0.3, 0]} seats={2} />
+                {/* Block between x=-40..0, z=0..40 */}
+                <SwingSet position={[-22, 0, 15]} rotation={[0, -0.2, 0]} seats={3} />
+                {/* Block between x=0..40, z=-40..0 */}
+                <SwingSet position={[18, 0, -22]} rotation={[0, Math.PI / 2, 0]} seats={2} />
+                {/* Block between x=0..40, z=0..40 */}
+                <SwingSet position={[15, 0, 22]} rotation={[0, 0, 0]} seats={2} />
+                {/* Block between x=40..80, z=-40..0 */}
+                <SwingSet position={[55, 0, -25]} rotation={[0, 0.5, 0]} seats={2} />
+                {/* Block between x=40..80, z=0..40 */}
+                <SwingSet position={[55, 0, 18]} rotation={[0, -0.3, 0]} seats={3} />
+            </RigidBody>
+
+            {/* ── Sheds & Safe Zones — zombie-proof shelters ── */}
+            <RigidBody type="fixed" name="sheds">
+                {/* NW abandoned survivor shed — door faces road */}
+                <Shed position={[-70, 0, -25]} rotation={[0, 0, 0]} width={5} depth={4}
+                    color="#5a4a3a" roofColor="#3a3028" doorSide="right" />
+                {/* SW corner safe house — larger */}
+                <Shed position={[-65, 0, 70]} rotation={[0, 0.4, 0]} width={6} depth={5}
+                    color="#4a3a2a" roofColor="#2a2520" doorSide="front" />
+                {/* East side supply shed */}
+                <Shed position={[65, 0, 25]} rotation={[0, -Math.PI / 4, 0]} width={4.5} depth={3.5}
+                    color="#5e4e3e" roofColor="#383028" doorSide="left" />
+                {/* NE quarantine shelter */}
+                <Shed position={[90, 0, -55]} rotation={[0, Math.PI / 6, 0]} width={5} depth={4}
+                    color="#4d4030" roofColor="#332820" doorSide="front" />
+                {/* Center-north medical hut */}
+                <Shed position={[-20, 0, -65]} rotation={[0, 0, 0]} width={4} depth={3.5}
+                    color="#556666" roofColor="#334444" doorSide="back" />
+                {/* Far-east depot cabin */}
+                <Shed position={[92, 0, 60]} rotation={[0, -0.3, 0]} width={5.5} depth={4}
+                    color="#5a4030" roofColor="#3a2a20" doorSide="front" />
+            </RigidBody>
+
+            {/* ── Watchtowers — elevated safe platforms ── */}
+            <RigidBody type="fixed" name="watchtowers">
+                {/* NW corner overwatch */}
+                <Watchtower position={[-75, 0, -75]} rotation={[0, Math.PI / 4, 0]} />
+                {/* SE corner overwatch */}
+                <Watchtower position={[55, 0, 65]} rotation={[0, -Math.PI / 3, 0]} />
+                {/* Far-east forward post */}
+                <Watchtower position={[92, 0, -85]} rotation={[0, 0, 0]} />
+                {/* NE corner */}
+                <Watchtower position={[75, 0, -75]} rotation={[0, -Math.PI / 4, 0]} />
+                {/* SW corner */}
+                <Watchtower position={[-75, 0, 75]} rotation={[0, Math.PI / 3, 0]} />
+                {/* Center-north roadside */}
+                <Watchtower position={[-20, 0, -55]} rotation={[0, 0, 0]} />
+                {/* Far-east south */}
+                <Watchtower position={[92, 0, 75]} rotation={[0, Math.PI / 2, 0]} />
+                {/* West border */}
+                <Watchtower position={[-85, 0, 10]} rotation={[0, -Math.PI / 6, 0]} />
+                {/* East mid */}
+                <Watchtower position={[60, 0, -55]} rotation={[0, 0.3, 0]} />
+                {/* Central overwatch 1 */}
+                <Watchtower position={[-15, 0, 15]} rotation={[0, Math.PI / 5, 0]} />
+                {/* Central overwatch 2 */}
+                <Watchtower position={[20, 0, -15]} rotation={[0, -Math.PI / 6, 0]} />
+            </RigidBody>
+
+            {/* ── Visible border barriers ── */}
             <RigidBody type="fixed" name="boundary">
+                {/* Physics colliders */}
                 <CuboidCollider args={[100, 10, 0.5]} position={[0, 5, -100]} />
                 <CuboidCollider args={[100, 10, 0.5]} position={[0, 5, 100]} />
                 <CuboidCollider args={[0.5, 10, 100]} position={[100, 5, 0]} />
                 <CuboidCollider args={[0.5, 10, 100]} position={[-100, 5, 0]} />
+
+                {/* Visible concrete walls — North */}
+                <mesh position={[0, 1.5, -100]} castShadow receiveShadow>
+                    <boxGeometry args={[200, 3, 1]} />
+                    <meshStandardMaterial color="#555555" roughness={0.9} metalness={0.1} />
+                </mesh>
+                {/* South */}
+                <mesh position={[0, 1.5, 100]} castShadow receiveShadow>
+                    <boxGeometry args={[200, 3, 1]} />
+                    <meshStandardMaterial color="#555555" roughness={0.9} metalness={0.1} />
+                </mesh>
+                {/* East */}
+                <mesh position={[100, 1.5, 0]} castShadow receiveShadow>
+                    <boxGeometry args={[1, 3, 200]} />
+                    <meshStandardMaterial color="#555555" roughness={0.9} metalness={0.1} />
+                </mesh>
+                {/* West */}
+                <mesh position={[-100, 1.5, 0]} castShadow receiveShadow>
+                    <boxGeometry args={[1, 3, 200]} />
+                    <meshStandardMaterial color="#555555" roughness={0.9} metalness={0.1} />
+                </mesh>
+
+                {/* Warning stripe on top of walls */}
+                <mesh position={[0, 3.02, -100]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <planeGeometry args={[200, 1]} />
+                    <meshStandardMaterial color="#aa5500" roughness={0.8} />
+                </mesh>
+                <mesh position={[0, 3.02, 100]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <planeGeometry args={[200, 1]} />
+                    <meshStandardMaterial color="#aa5500" roughness={0.8} />
+                </mesh>
+                <mesh position={[100, 3.02, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 2]}>
+                    <planeGeometry args={[200, 1]} />
+                    <meshStandardMaterial color="#aa5500" roughness={0.8} />
+                </mesh>
+                <mesh position={[-100, 3.02, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 2]}>
+                    <planeGeometry args={[200, 1]} />
+                    <meshStandardMaterial color="#aa5500" roughness={0.8} />
+                </mesh>
+            </RigidBody>
+
+            {/* ── Border props — containers & barriers along walls ── */}
+            <RigidBody type="fixed" name="border-props">
+                {/* North wall — containers */}
+                <GLTFProp path={PROP.containerGreen} position={[-50, 0, -98]} rotation={[0, 0.1, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerRed} position={[-20, 0, -98]} rotation={[0, -0.05, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerGreen} position={[30, 0, -98]} rotation={[0, 0.15, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerRed} position={[70, 0, -98]} rotation={[0, -0.1, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                {/* South wall */}
+                <GLTFProp path={PROP.containerRed} position={[-40, 0, 98]} rotation={[0, Math.PI + 0.1, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerGreen} position={[10, 0, 98]} rotation={[0, Math.PI, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerRed} position={[60, 0, 98]} rotation={[0, Math.PI - 0.1, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                {/* East wall */}
+                <GLTFProp path={PROP.containerGreen} position={[98, 0, -60]} rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerRed} position={[98, 0, -20]} rotation={[0, Math.PI / 2 + 0.1, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerGreen} position={[98, 0, 30]} rotation={[0, Math.PI / 2 - 0.05, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerRed} position={[98, 0, 70]} rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                {/* West wall */}
+                <GLTFProp path={PROP.containerRed} position={[-98, 0, -40]} rotation={[0, -Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerGreen} position={[-98, 0, 20]} rotation={[0, -Math.PI / 2 + 0.1, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                <GLTFProp path={PROP.containerRed} position={[-98, 0, 60]} rotation={[0, -Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />
+                {/* Corner barrier stacks */}
+                <GLTFProp path={PROP.trafficBarrier1} position={[-95, 0, -95]} rotation={[0, Math.PI / 4, 0]} colliderArgs={[1.8, 0.8, 0.2]} />
+                <GLTFProp path={PROP.trafficBarrier2} position={[95, 0, -95]} rotation={[0, -Math.PI / 4, 0]} colliderArgs={[0.8, 0.6, 0.2]} />
+                <GLTFProp path={PROP.trafficBarrier1} position={[-95, 0, 95]} rotation={[0, -Math.PI / 4, 0]} colliderArgs={[1.8, 0.8, 0.2]} />
+                <GLTFProp path={PROP.trafficBarrier2} position={[95, 0, 95]} rotation={[0, Math.PI / 4, 0]} colliderArgs={[0.8, 0.6, 0.2]} />
             </RigidBody>
         </>
     );
 };
 
-// Preload all assets
-[...Object.values(STREET_PATHS), ...Object.values(PROP_PATHS)].forEach((path) => useGLTF.preload(path));
+// Preload critical assets
+[...Object.values(STREET), ...Object.values(PROP)].forEach((path) =>
+    useGLTF.preload(path)
+);
