@@ -4,7 +4,7 @@ import { useGraph } from '@react-three/fiber'
 import { useGLTF, useAnimations } from '@react-three/drei'
 import { SkeletonUtils } from 'three-stdlib'
 
-export function Characters_Lis({ animation, onAnimationFinished, ...props }: any) {
+export function Characters_Lis({ animation, weaponSlot, onAnimationFinished, ...props }: any) {
     const group = React.useRef<THREE.Group>(null!)
     const { scene, animations } = useGLTF('/models/Characters_Lis-transformed.glb')
     const clone = React.useMemo(() => SkeletonUtils.clone(scene), [scene])
@@ -26,7 +26,8 @@ export function Characters_Lis({ animation, onAnimationFinished, ...props }: any
             action.setLoop(THREE.LoopRepeat, Infinity)
         }
 
-        return () => {
+        
+    return () => {
             action.fadeOut(0.24)
         }
     }, [animation, actions])
@@ -39,8 +40,21 @@ export function Characters_Lis({ animation, onAnimationFinished, ...props }: any
         return () => mixer.removeEventListener('finished', handleFinished)
     }, [mixer, onAnimationFinished])
 
-    return (
-        <group ref={group} {...props} dispose={null}>
+    // Hide the baked-in weapon node based on weaponSlot.
+    // Standard models have an Axe — hide it for Unarmed and Ranged (WeaponMount handles ranged gun).
+    const WEAPON_NODE_NAMES = ['Axe', 'Guitar', 'Knife', 'Pistol', 'SMG', 'Rifle', 'Spear', 'WoodenBat'];
+    useEffect(() => {
+        if (!nodes.Root) return;
+        nodes.Root.traverse((child: any) => {
+            if (WEAPON_NODE_NAMES.includes(child.name)) {
+                // Show baked weapon only for SingleWeapon (melee) mode
+                child.visible = (weaponSlot === 'SingleWeapon');
+            }
+        });
+    }, [weaponSlot, nodes]);
+
+  return (
+    <group ref={group} {...props} dispose={null}>
             <group name="Scene">
                 <primitive object={nodes.Root} />
                 <skinnedMesh

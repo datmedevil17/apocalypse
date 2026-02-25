@@ -17,7 +17,7 @@ export interface PlayerState {
 
 interface GameState {
     selectedCharacter: string
-    selectedVariant: 'Standard' | 'SingleWeapon'
+    selectedVariant: 'Unarmed' | 'SingleWeapon' | 'Standard'
     selectedPet: string
     timeOfDay: number
     playerAnimation: string
@@ -30,7 +30,7 @@ interface GameState {
     gamePhase: 'intro' | 'selection' | 'playing'
     setGamePhase: (phase: 'intro' | 'selection' | 'playing') => void
     setSelectedCharacter: (character: string) => void
-    setSelectedVariant: (variant: 'Standard' | 'SingleWeapon') => void
+    setSelectedVariant: (variant: 'Unarmed' | 'SingleWeapon' | 'Standard') => void
     setSelectedPet: (pet: string) => void
     setTimeOfDay: (time: number) => void
     setPlayerAnimation: (animation: string) => void
@@ -41,7 +41,7 @@ interface GameState {
 
 export const useStore = create<GameState>((set) => ({
     selectedCharacter: baseCharacters[0],
-    selectedVariant: 'Standard',
+    selectedVariant: 'Unarmed',
     selectedPet: petCharacters[0],
     timeOfDay: 0.5,
     playerAnimation: 'Idle',

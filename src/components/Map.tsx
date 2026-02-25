@@ -80,6 +80,15 @@ const Prop = ({ path, position, rotation = [0, 0, 0], scale = 1, colliderArgs }:
     );
 };
 
+const INTERSECTION_POINTS = [-72, -48, -24, 0, 24, 48, 72];
+
+/** Returns true if the given world position sits on a road lane (within 4 units of a road centre) */
+const isOnRoad = (x: number, z: number): boolean => {
+    const onVerticalRoad = INTERSECTION_POINTS.some(ix => Math.abs(x - ix) < 4);
+    const onHorizontalRoad = INTERSECTION_POINTS.some(iz => Math.abs(z - iz) < 4);
+    return onVerticalRoad || onHorizontalRoad;
+};
+
 export const Map = ({ level = 3 }: { level?: number }) => {
     // Textures for non-road areas
     const grassTexture = useTexture("https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/terrain/grasslight-big.jpg");
@@ -127,7 +136,6 @@ export const Map = ({ level = 3 }: { level?: number }) => {
 
     const worldProps = useMemo(() => {
         const props = [];
-        const intersectionPoints = [-72, -48, -24, 0, 24, 48, 72];
         const tileSize = 8;
 
         // Difficulty Settings
@@ -158,10 +166,10 @@ export const Map = ({ level = 3 }: { level?: number }) => {
         }
 
         // --- 2. Intersections & Street Furniture ---
-        intersectionPoints.forEach(x => {
-            intersectionPoints.forEach(z => {
+        INTERSECTION_POINTS.forEach(x => {
+            INTERSECTION_POINTS.forEach(z => {
                 // Traffic Lights
-                if ((intersectionPoints.indexOf(x) + intersectionPoints.indexOf(z)) % (level === 1 ? 4 : 2) === 0) {
+                if ((INTERSECTION_POINTS.indexOf(x) + INTERSECTION_POINTS.indexOf(z)) % (level === 1 ? 4 : 2) === 0) {
                     props.push(<Prop key={`tl-${x}-${z}`} path={PROP_PATHS.trafficLight1} position={[x + 4.5, 0, z + 4.5]} rotation={[0, Math.PI, 0]} colliderArgs={[0.1, 2, 0.1]} />);
                     props.push(<Prop key={`tl2-${x}-${z}`} path={PROP_PATHS.trafficLight1} position={[x - 4.5, 0, z - 4.5]} colliderArgs={[0.1, 2, 0.1]} />);
                 }
@@ -188,33 +196,36 @@ export const Map = ({ level = 3 }: { level?: number }) => {
         // Street Lights along roads
         const lightStep = tileSize * (level === 1 ? 4 : 2);
         for (let i = -80; i <= 80; i += lightStep) {
-            if (!intersectionPoints.includes(i)) {
+            if (!INTERSECTION_POINTS.includes(i)) {
                 props.push(<Prop key={`sl-v-${i}`} path={PROP_PATHS.streetLights} position={[4.5, 0, i]} rotation={[0, -Math.PI / 2, 0]} colliderArgs={[0.1, 2, 0.1]} />);
                 props.push(<Prop key={`sl-h-${i}`} path={PROP_PATHS.streetLights} position={[i, 0, 4.5]} colliderArgs={[0.1, 2, 0.1]} />);
             }
         }
 
         // --- 3. Abandoned Vehicles & Debris ---
-        const seedProps = [
-            { path: PROP_PATHS.pickupArmored, colliderArgs: [1.1, 0.8, 2.4] },
-            { path: PROP_PATHS.sports, colliderArgs: [0.9, 0.6, 2.1] },
-            { path: PROP_PATHS.truckArmored, colliderArgs: [1.4, 1.2, 3.8] },
+        // Only off-road props (vehicles, trash bags) - NO stones/blocks on roads
+        const offRoadProps = [
             { path: PROP_PATHS.barrel, scale: 1, colliderArgs: [0.35, 0.6, 0.35] },
             { path: PROP_PATHS.trashBag1, scale: 1.8, colliderArgs: [0.7, 0.5, 0.7] },
             { path: PROP_PATHS.trashBag2, scale: 2, colliderArgs: [0.9, 0.7, 0.9] },
-            { path: PROP_PATHS.cinderBlock, scale: 2, colliderArgs: [0.4, 0.2, 0.4] },
-            { path: PROP_PATHS.pallet, colliderArgs: [0.6, 0.1, 0.6] },
+        ];
+        const onRoadProps = [
+            { path: PROP_PATHS.pickupArmored, colliderArgs: [1.1, 0.8, 2.4] },
+            { path: PROP_PATHS.sports, colliderArgs: [0.9, 0.6, 2.1] },
+            { path: PROP_PATHS.truckArmored, colliderArgs: [1.4, 1.2, 3.8] },
         ];
 
-        // Add random debris based on density
+        // Add random debris based on density — stones/blocks only off-road
         if (level > 1) {
             const debrisCount = Math.floor(20 * config.debrisDensity);
             for (let i = 0; i < debrisCount; i++) {
-                const item = seedProps[i % seedProps.length];
                 const rx = (Math.random() - 0.5) * 160;
                 const rz = (Math.random() - 0.5) * 160;
-                // Avoid placing on intersections too much
-                if (Math.abs(rx % 24) < 5 && Math.abs(rz % 24) < 5) continue;
+                const onRoad = isOnRoad(rx, rz);
+
+                // Pick prop type: vehicles can go on roads, trash/barrels off-road only
+                const pool = onRoad ? onRoadProps : offRoadProps;
+                const item = pool[i % pool.length];
 
                 props.push(
                     <Prop
@@ -222,7 +233,7 @@ export const Map = ({ level = 3 }: { level?: number }) => {
                         path={item.path}
                         position={[rx, 0, rz]}
                         rotation={[0, Math.random() * Math.PI, 0]}
-                        scale={item.scale || 1}
+                        scale={(item as any).scale || 1}
                         colliderArgs={item.colliderArgs as any}
                     />
                 );

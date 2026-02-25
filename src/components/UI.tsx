@@ -114,21 +114,29 @@ export const UI = () => {
                     <div style={{ background: "rgba(255,255,255,0.05)", padding: "30px", borderRadius: "20px", border: "1px solid rgba(255,255,255,0.1)", width: "300px" }}>
                         <h3 style={{ margin: "0 0 20px 0", fontSize: "1.2rem", opacity: 0.6 }}>SELECT LOADOUT</h3>
                         <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
-                            <button onClick={() => setSelectedVariant('Standard')} style={{
+                            <button onClick={() => setSelectedVariant('Unarmed')} style={{
                                 padding: "20px", borderRadius: "10px", border: "none",
-                                background: selectedVariant === 'Standard' ? "#2196f3" : "rgba(255, 255, 255, 0.05)",
+                                background: selectedVariant === 'Unarmed' ? "#2196f3" : "rgba(255, 255, 255, 0.05)",
                                 color: "white", cursor: "pointer", fontSize: "1.1rem", transition: "all 0.2s ease"
                             }}>
-                                <div style={{ fontWeight: "bold" }}>DUAL WIELD</div>
-                                <div style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "5px" }}>Maximum firepower</div>
+                                <div style={{ fontWeight: "bold" }}>UNARMED</div>
+                                <div style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "5px" }}>Fists only</div>
                             </button>
                             <button onClick={() => setSelectedVariant('SingleWeapon')} style={{
                                 padding: "20px", borderRadius: "10px", border: "none",
                                 background: selectedVariant === 'SingleWeapon' ? "#2196f3" : "rgba(255, 255, 255, 0.05)",
                                 color: "white", cursor: "pointer", fontSize: "1.1rem", transition: "all 0.2s ease"
                             }}>
-                                <div style={{ fontWeight: "bold" }}>SINGLE WEAPON</div>
-                                <div style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "5px" }}>Balanced control</div>
+                                <div style={{ fontWeight: "bold" }}>MELEE</div>
+                                <div style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "5px" }}>Slasher weapon</div>
+                            </button>
+                            <button onClick={() => setSelectedVariant('Standard')} style={{
+                                padding: "20px", borderRadius: "10px", border: "none",
+                                background: selectedVariant === 'Standard' ? "#2196f3" : "rgba(255, 255, 255, 0.05)",
+                                color: "white", cursor: "pointer", fontSize: "1.1rem", transition: "all 0.2s ease"
+                            }}>
+                                <div style={{ fontWeight: "bold" }}>RANGED</div>
+                                <div style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "5px" }}>Dual firearms</div>
                             </button>
                         </div>
 
@@ -190,6 +198,38 @@ export const UI = () => {
                     onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"}>
                     ?
                 </button>
+            </div>
+
+            {/* Weapon HUD */}
+            <div style={{
+                position: "fixed", bottom: "30px", left: "50%", transform: "translateX(-50%)",
+                display: "flex", gap: "10px", zIndex: 100, alignItems: "flex-end", pointerEvents: "all"
+            }}>
+                {([
+                    { key: '', label: 'UNARMED', variant: 'Unarmed', icon: '👊' },
+                    { key: '', label: 'MELEE', variant: 'SingleWeapon', icon: '🪓' },
+                    { key: '', label: 'RANGED', variant: 'Standard', icon: '🔫' },
+                ] as { key: string; label: string; variant: 'Unarmed' | 'Standard' | 'SingleWeapon'; icon: string }[]).map(({ key, label, variant, icon }) => (
+                    <div
+                        key={label}
+                        onClick={() => setSelectedVariant(variant)}
+                        style={{
+                            position: "relative",
+                            width: "70px", height: "70px",
+                            background: selectedVariant === variant ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.52)",
+                            border: selectedVariant === variant ? "2px solid rgba(255,255,255,0.8)" : "2px solid rgba(255,255,255,0.18)",
+                            borderRadius: "10px",
+                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            cursor: "pointer", backdropFilter: "blur(10px)", transition: "all 0.2s ease",
+                            boxShadow: selectedVariant === variant ? "0 0 16px rgba(255,255,255,0.25)" : "none",
+                            transform: selectedVariant === variant ? "scale(1.08)" : "scale(1)",
+                        }}
+                    >
+                        <span style={{ fontSize: "1.6rem" }}>{icon}</span>
+                        <span style={{ color: "white", fontSize: "0.55rem", marginTop: "4px", opacity: 0.8, letterSpacing: "0.05rem", fontFamily: "monospace" }}>{label}</span>
+                    </div>
+                ))}
+                <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.6rem", fontFamily: "monospace", marginBottom: "6px", marginLeft: "4px" }}>scroll / M</div>
             </div>
 
             <HelpMenu />

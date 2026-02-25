@@ -31,33 +31,11 @@ export function useSocket() {
             }
         })
 
-        socket.current = new WebSocket(WS_URL)
-
-        socket.current.onmessage = (event) => {
-            const messages = event.data.split('\n')
-            messages.forEach((msg: string) => {
-                if (!msg.trim()) return
-                try {
-                    const data = JSON.parse(msg)
-                    if (data.type === 'update' && data.id !== myId) {
-                        setRemotePlayer(data.id, {
-                            id: data.id,
-                            ...data.payload,
-                        })
-                    }
-                } catch (e) {
-                    console.error('Failed to parse socket message:', e, msg)
-                }
-            })
-        }
-
-        socket.current.onclose = () => {
-            console.log('Socket disconnected')
-        }
+        // Mock out the websocket to prevent hang when server is down
+        console.log('Mock WebSocket initialized');
 
         return () => {
             unsub()
-            socket.current?.close()
         }
     }, [])
 

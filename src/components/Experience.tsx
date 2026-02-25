@@ -41,7 +41,7 @@ export const Experience = ({ level = 3 }: { level?: number }) => {
                 shadow-camera-bottom={-20}
             />
 
-            <Physics debug={false} interpolate>
+            <Physics debug={true} interpolate>
                 <Map level={level} />
                 <Character groupRef={playerRef} />
                 <Pet playerRef={playerRef} />

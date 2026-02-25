@@ -4,7 +4,7 @@ import { useGraph } from '@react-three/fiber'
 import { useGLTF, useAnimations } from '@react-three/drei'
 import { SkeletonUtils } from 'three-stdlib'
 
-export function Characters_Matt({ animation, onAnimationFinished, ...props }: any) {
+export function Characters_Matt({ animation, weaponSlot, onAnimationFinished, ...props }: any) {
   const group = React.useRef<THREE.Group>(null!)
   const { scene, animations } = useGLTF('/models/Characters_Matt-transformed.glb')
   const clone = React.useMemo(() => SkeletonUtils.clone(scene), [scene])
@@ -26,6 +26,7 @@ export function Characters_Matt({ animation, onAnimationFinished, ...props }: an
       action.setLoop(THREE.LoopRepeat, Infinity)
     }
 
+    
     return () => {
       action.fadeOut(0.24)
     }
@@ -38,6 +39,16 @@ export function Characters_Matt({ animation, onAnimationFinished, ...props }: an
     mixer.addEventListener('finished', handleFinished)
     return () => mixer.removeEventListener('finished', handleFinished)
   }, [mixer, onAnimationFinished])
+
+    const WEAPON_NODE_NAMES = ['Axe', 'Guitar', 'Knife', 'Pistol', 'SMG', 'Rifle', 'Spear', 'WoodenBat'];
+    useEffect(() => {
+        if (!nodes.Root) return;
+        nodes.Root.traverse((child: any) => {
+            if (WEAPON_NODE_NAMES.includes(child.name)) {
+                child.visible = (weaponSlot === 'SingleWeapon');
+            }
+        });
+    }, [weaponSlot, nodes]);
 
   return (
     <group ref={group} {...props} dispose={null}>

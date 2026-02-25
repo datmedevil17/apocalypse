@@ -1,8 +1,8 @@
 import * as THREE from 'three'
-import { useRef, useState, useMemo, useEffect } from 'react'
+import { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
-import { RigidBody, CapsuleCollider, RapierRigidBody } from '@react-three/rapier'
+import { RigidBody, CapsuleCollider, RapierRigidBody, useRapier } from '@react-three/rapier'
 import { useStore } from '../store'
 import { Characters_Lis } from './Characters/Characters_Lis'
 import { Characters_GermanShepherd } from './Characters/Characters_GermanShepherd'
@@ -10,6 +10,7 @@ import { Characters_Matt } from './Characters/Characters_Matt'
 import { Characters_Pug } from './Characters/Characters_Pug'
 import { Characters_Sam } from './Characters/Characters_Sam'
 import { Characters_Shaun } from './Characters/Characters_Shaun'
+import { WeaponMount } from './WeaponMount'
 import { Characters_Lis_SingleWeapon } from './Characters/Characters_Lis_SingleWeapon'
 import { Characters_Matt_SingleWeapon } from './Characters/Characters_Matt_SingleWeapon'
 import { Characters_Sam_SingleWeapon } from './Characters/Characters_Sam_SingleWeapon'
@@ -29,45 +30,103 @@ const CharacterModels: Record<string, any> = {
   GermanShepherd: { Standard: Characters_GermanShepherd },
 }
 
+type WeaponVariant = 'Unarmed' | 'SingleWeapon' | 'Standard'
+const WEAPON_VARIANTS: WeaponVariant[] = ['Unarmed', 'SingleWeapon', 'Standard']
+
+/** Map weapon slot → which character model to render */
+const VARIANT_MODEL: Record<WeaponVariant, 'Standard' | 'SingleWeapon'> = {
+  Unarmed: 'Standard',       // bare hands — use dual-wield model
+  SingleWeapon: 'SingleWeapon', // melee
+  Standard: 'Standard',     // Ranged weapon (SMG)
+}
+
+/** Map weapon slot → attack animation name */
+const VARIANT_ATTACK: Record<WeaponVariant, string> = {
+  Unarmed: 'Punch',
+  SingleWeapon: 'Slash',
+  Standard: 'Stab',
+}
+
+const JUMP_FORCE = 3
+
 export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE.Group> }) {
   const rb = useRef<RapierRigidBody>(null!)
   const [animation, setAnimation] = useState('Idle')
   const selectedCharacter = useStore((state) => state.selectedCharacter)
   const selectedVariant = useStore((state) => state.selectedVariant)
+  const setSelectedVariant = useStore((state) => state.setSelectedVariant)
   const gamePhase = useStore((state) => state.gamePhase)
+  const { rapier, world } = useRapier()
 
   // Camera rotation state
   const cameraRotation = useRef({ yaw: 0, pitch: -Math.PI / 8 })
   const cameraDistance = 8
+  const jumpPressed = useRef(false)
 
   // Jump & Grounding state
   const isGrounded = useRef(true)
   const inAir = useRef(false)
+  const canDoubleJump = useRef(false)
 
-  // Setup Pointer Lock and Mouse Movement
+  // Attack state
+  const attackPending = useRef(false)
+
+  // Weapon switch helper — cycles through all 3 slots
+  const cycleWeapon = useCallback((direction: number) => {
+    const currentIdx = WEAPON_VARIANTS.indexOf(selectedVariant as WeaponVariant)
+    const nextIdx = (currentIdx + direction + WEAPON_VARIANTS.length) % WEAPON_VARIANTS.length
+    setSelectedVariant(WEAPON_VARIANTS[nextIdx])
+  }, [selectedVariant, setSelectedVariant])
+
+  // Setup Pointer Lock, Mouse Movement, Weapon Switching
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement) {
         cameraRotation.current.yaw -= e.movementX * 0.002
         cameraRotation.current.pitch = Math.max(
-          -Math.PI / 2.5, // Looking down
-          Math.min(-0.05, cameraRotation.current.pitch - e.movementY * 0.002) // Prevent going below or horizontal
+          -Math.PI / 2.5,
+          Math.min(-0.05, cameraRotation.current.pitch - e.movementY * 0.002)
         )
       }
     }
 
-    const handleCanvasClick = () => {
+    const handleCanvasClick = (e: MouseEvent) => {
+      if (gamePhase !== 'playing') return
+      if (e.button !== 0) return // left click only
       const canvas = document.querySelector('canvas')
-      if (canvas) canvas.requestPointerLock()
+      if (!canvas) return
+      // If pointer is already locked, fire attack immediately
+      if (document.pointerLockElement === canvas) {
+        attackPending.current = true
+      } else {
+        // Lock pointer; attack will fire next click once locked
+        canvas.requestPointerLock()
+      }
+    }
+
+    // Weapon switch: M cycles Unarmed -> Melee -> Ranged
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (gamePhase !== 'playing') return
+      if (e.code === 'KeyM') cycleWeapon(1)
+    }
+
+    // Scroll wheel cycles through weapons
+    const handleWheel = (e: WheelEvent) => {
+      if (gamePhase !== 'playing') return
+      cycleWeapon(e.deltaY > 0 ? 1 : -1)
     }
 
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mousedown', handleCanvasClick)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('wheel', handleWheel)
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mousedown', handleCanvasClick)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('wheel', handleWheel)
     }
-  }, [])
+  }, [gamePhase, cycleWeapon, setSelectedVariant])
 
   const spawnPos = useMemo(() => {
     return [Math.random() * 10 - 5, 5, Math.random() * 10 - 5] as [number, number, number]
@@ -77,7 +136,8 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
   const setLocalPlayerPos = useStore((state) => state.setLocalPlayerPos)
 
   const variants = CharacterModels[selectedCharacter] || CharacterModels.Lis
-  const CharacterModel = variants[selectedVariant] || variants.Standard
+  const modelKey = VARIANT_MODEL[selectedVariant as WeaponVariant] ?? 'Standard'
+  const CharacterModel = variants[modelKey] || variants.Standard
 
   const [, getKeys] = useKeyboardControls()
   const { broadcast } = useSocket()
@@ -86,7 +146,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
     if (gamePhase !== 'playing') return
     if (!rb.current || !groupRef.current) return
 
-    const { forward, backward, left, right, sprint, petting, action1, action2, action3, action4, action5, action6, action7, action8, action9, action0 } = getKeys()
+    const { forward, backward, left, right, sprint, jump, petting, action1, action2, action3, action4, action5, action6, action7, action8, action9, action0 } = getKeys()
 
     // Broadcast state
     const pos = rb.current.translation()
@@ -96,11 +156,62 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
 
     const velocity = rb.current.linvel()
 
-    // Simple grounding check based on y velocity and position relative to ground 
-    // Roads are at y=0.01, grass at y=0. Character feet are around y=0.
-    isGrounded.current = Math.abs(velocity.y) < 0.2 && pos.y < 0.2
+    // Raycast down from slightly below the character's feet to detect floor or props
+    const ray = new rapier.Ray(
+      { x: pos.x, y: pos.y - 0.05, z: pos.z }, 
+      { x: 0, y: -1, z: 0 } 
+    )
+    // Cast ray up to 0.2 units downwards. 
+    const hit = world.castRay(ray, 0.2, true)
+
+    // Grounded if vertical velocity is near zero AND raycast hit something directly below
+    const wasGrounded = isGrounded.current
+    isGrounded.current = Math.abs(velocity.y) < 0.2 && hit !== null
+
+    if (isGrounded.current && !wasGrounded) {
+      canDoubleJump.current = true
+    }
+
+    // Jump: apply upward impulse when grounded and Space is pressed
+    if (jump && !jumpPressed.current) {
+      jumpPressed.current = true
+      
+      if (isGrounded.current) {
+        rb.current.applyImpulse({ x: 0, y: JUMP_FORCE, z: 0 }, true)
+        inAir.current = true
+        setAnimation('Jump')
+        setPlayerAnimation('Jump')
+      } else if (canDoubleJump.current) {
+        canDoubleJump.current = false
+        // Reset downward velocity slightly before applying second jump
+        rb.current.setLinvel({ x: velocity.x, y: 0, z: velocity.z }, true)
+        rb.current.applyImpulse({ x: 0, y: JUMP_FORCE * 0.9, z: 0 }, true)
+        
+        // Use a different animation or re-trigger Jump for visual feedback
+        setAnimation('Run_Jump')
+        setPlayerAnimation('Run_Jump')
+      }
+    }
+    if (!jump) jumpPressed.current = false
+
+    // Detect landing
+    if (inAir.current && isGrounded.current && velocity.y > -0.5) {
+      inAir.current = false
+      setAnimation('Jump_Land')
+      setPlayerAnimation('Jump_Land')
+    }
 
     let nextAnimation = animation
+
+    // Left-click attack — use weapon-slot-specific animation
+    if (attackPending.current) {
+      attackPending.current = false
+      const isAnimal = selectedCharacter === 'Pug' || selectedCharacter === 'GermanShepherd'
+      const attackAnim = isAnimal ? 'Attack' : (VARIANT_ATTACK[selectedVariant as WeaponVariant] ?? 'Punch')
+      setAnimation(attackAnim)
+      setPlayerAnimation(attackAnim)
+      return // let the one-shot finish, skip movement overrides this frame
+    }
 
     const rawMovement = { x: 0, z: 0 }
     if (forward) rawMovement.z -= 1
@@ -198,6 +309,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
       <group ref={groupRef}>
         <CharacterModel
           animation={animation}
+          weaponSlot={selectedVariant}
           onAnimationFinished={(name: string) => {
             const isOneShot = !['Idle', 'Run', 'Walk', 'Idle_2', 'Idle_2_HeadLow'].includes(name)
             if (isOneShot) {
@@ -206,6 +318,9 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
             }
           }}
         />
+        {(selectedCharacter !== 'Pug' && selectedCharacter !== 'GermanShepherd') && (
+          <WeaponMount characterGroupRef={groupRef} />
+        )}
       </group>
     </RigidBody>
   )
