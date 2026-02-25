@@ -1,6 +1,6 @@
 import { useStore } from '../store'
 
-const MAP_SIZE = 100
+const MAP_SIZE = 200
 
 export function Minimap() {
     const remotePlayers = useStore((state) => state.remotePlayers)
