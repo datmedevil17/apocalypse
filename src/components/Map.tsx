@@ -63,7 +63,6 @@ const RoadSegment = ({
     return (
         <group position={lifted} rotation={rotation}>
             <primitive object={clone} />
-            <CuboidCollider args={[4, 0.05, 4]} position={[0, -0.04, 0]} />
         </group>
     );
 };
@@ -557,7 +556,7 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
        ══════════════════════════════════════════════════════════════════ */
 
     const roads = useMemo(() => {
-        const s: JSX.Element[] = [];
+        const s: React.JSX.Element[] = [];
         const S = STREET;
         const G = 40; // grid spacing
         const G2 = 80; // far-east column
@@ -706,7 +705,7 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
        ~50+ hand-placed tactical elements
        ══════════════════════════════════════════════════════════════════ */
     const props = useMemo(() => {
-        const p: JSX.Element[] = [];
+        const p: React.JSX.Element[] = [];
         const P = PROP;
         const G = 40;
         const G2 = 80;
@@ -1023,7 +1022,7 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
 
     /* ── Ground decals — blood splatter, oil, and scorch marks ── */
     const decals = useMemo(() => {
-        const d: JSX.Element[] = [];
+        const d: React.JSX.Element[] = [];
         const G = 40;
 
         // Center killzone — heavy blood

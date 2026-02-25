@@ -9,6 +9,7 @@ import { Character } from "./Character";
 import { Pet } from "./Pet";
 import { Multiplayer } from "./Multiplayer";
 import { AtmosphereEffects } from "./AtmosphereEffects";
+import { ZombieSpawner } from "./Zombies/ZombieSpawner";
 import * as THREE from 'three';
 
 /* ── Pulsing red ambient for dread ── */
@@ -96,6 +97,7 @@ export const Experience = ({ level = 3 }: { level?: number }) => {
             <Physics debug={false} interpolate>
                 <Map level={level} />
                 <Character groupRef={playerRef} />
+                <ZombieSpawner playerRef={playerRef} count={15} />
                 <Pet playerRef={playerRef} />
                 <Multiplayer />
             </Physics>
