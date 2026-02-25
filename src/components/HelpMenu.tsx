@@ -34,66 +34,146 @@ export const HelpMenu = () => {
     ];
 
     return (
-        <div style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            background: "rgba(0, 0, 0, 0.8)",
-            padding: "30px",
-            borderRadius: "20px",
-            backdropFilter: "blur(20px)",
-            border: "1px solid rgba(255, 255, 255, 0.1)",
-            color: "white",
-            zIndex: 1000,
-            minWidth: "300px",
-            fontFamily: "sans-serif",
-            boxShadow: "0 20px 50px rgba(0,0,0,0.5)"
-        }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                <h2 style={{ margin: 0 }}>Shortcuts</h2>
-                <button
-                    onClick={toggleHelp}
-                    style={{
-                        background: "none",
-                        border: "none",
-                        color: "white",
-                        fontSize: "1.5rem",
-                        cursor: "pointer",
-                        padding: "5px"
+        <>
+            {/* Backdrop */}
+            <div onClick={toggleHelp} style={{
+                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
+                zIndex: 999
+            }} />
+
+            <div style={{
+                position: "fixed", top: "50%", left: "50%",
+                transform: "translate(-50%, -50%)",
+                background: "linear-gradient(145deg, rgba(12,12,24,0.95) 0%, rgba(8,8,18,0.97) 100%)",
+                padding: "32px 36px", borderRadius: "16px",
+                backdropFilter: "blur(24px)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                color: "white", zIndex: 1000, minWidth: "360px",
+                fontFamily: "'Inter', sans-serif",
+                boxShadow: "0 24px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04)",
+                animation: "helpFadeIn 0.2s ease-out"
+            }}>
+                {/* Header */}
+                <div style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    marginBottom: "24px", paddingBottom: "16px",
+                    borderBottom: "1px solid rgba(255,255,255,0.06)"
+                }}>
+                    <h2 style={{
+                        margin: 0, fontSize: "0.75rem", fontWeight: 600,
+                        letterSpacing: "0.2rem", color: "rgba(255,255,255,0.5)",
+                        textTransform: "uppercase"
+                    }}>Controls</h2>
+                    <button onClick={toggleHelp} style={{
+                        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                        color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", cursor: "pointer",
+                        padding: "4px 10px", borderRadius: "6px", transition: "all 0.2s ease",
+                        fontFamily: "'Inter', sans-serif"
                     }}
-                >
-                    ✕
-                </button>
-            </div>
-
-            <div style={{ marginBottom: "20px", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "10px" }}>
-                <p style={{ opacity: 0.7, fontSize: "0.9rem" }}>Movement: WASD / Arrows</p>
-                <p style={{ opacity: 0.7, fontSize: "0.9rem" }}>Sprint: Shift (Hold)</p>
-                <p style={{ opacity: 0.7, fontSize: "0.9rem" }}>Jump: Space</p>
-            </div>
-
-            <h3 style={{ fontSize: "1rem", marginBottom: "15px", color: "#4caf50" }}>
-                {isAnimal ? "Animal Actions" : "Human Actions"}
-            </h3>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                {shortcuts.map((s) => (
-                    <div key={s.key} style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                        <span style={{
-                            background: "rgba(255,255,255,0.1)",
-                            padding: "2px 8px",
-                            borderRadius: "4px",
-                            fontSize: "0.8rem",
-                            fontWeight: "bold",
-                            border: "1px solid rgba(255,255,255,0.2)"
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                            e.currentTarget.style.color = "rgba(255,255,255,0.8)";
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                            e.currentTarget.style.color = "rgba(255,255,255,0.4)";
                         }}>
-                            {s.key}
-                        </span>
-                        <span style={{ fontSize: "0.9rem" }}>{s.action}</span>
+                        ESC
+                    </button>
+                </div>
+
+                {/* Movement section */}
+                <div style={{ marginBottom: "20px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+                        {[
+                            { key: "WASD", action: "Move" },
+                            { key: "SHIFT", action: "Sprint" },
+                            { key: "SPACE", action: "Jump" },
+                        ].map((s) => (
+                            <div key={s.key} style={{
+                                display: "flex", flexDirection: "column", alignItems: "center",
+                                gap: "6px", padding: "10px 8px", borderRadius: "8px",
+                                background: "rgba(255,255,255,0.02)",
+                                border: "1px solid rgba(255,255,255,0.04)"
+                            }}>
+                                <span style={{
+                                    fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08rem",
+                                    color: "rgba(79,172,254,0.8)", fontFamily: "monospace"
+                                }}>{s.key}</span>
+                                <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.35)" }}>{s.action}</span>
+                            </div>
+                        ))}
                     </div>
-                ))}
+                </div>
+
+                {/* Actions section */}
+                <h3 style={{
+                    fontSize: "0.6rem", margin: "0 0 14px 0", fontWeight: 600,
+                    letterSpacing: "0.15rem",
+                    color: isAnimal ? "rgba(255,152,0,0.6)" : "rgba(76,175,80,0.6)",
+                    textTransform: "uppercase"
+                }}>
+                    {isAnimal ? "Animal Actions" : "Combat Actions"}
+                </h3>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                    {shortcuts.map((s) => (
+                        <div key={s.key} style={{
+                            display: "flex", gap: "10px", alignItems: "center",
+                            padding: "7px 10px", borderRadius: "6px",
+                            background: "rgba(255,255,255,0.015)",
+                            transition: "background 0.15s ease"
+                        }}>
+                            <span style={{
+                                background: "rgba(255,255,255,0.06)",
+                                padding: "2px 7px", borderRadius: "4px",
+                                fontSize: "0.65rem", fontWeight: 700,
+                                color: "rgba(255,255,255,0.5)",
+                                fontFamily: "monospace",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                                minWidth: "18px", textAlign: "center",
+                                boxShadow: "0 1px 2px rgba(0,0,0,0.2)"
+                            }}>
+                                {s.key}
+                            </span>
+                            <span style={{
+                                fontSize: "0.7rem", color: "rgba(255,255,255,0.45)",
+                                fontWeight: 400
+                            }}>{s.action}</span>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Weapon hint */}
+                <div style={{
+                    marginTop: "18px", paddingTop: "14px",
+                    borderTop: "1px solid rgba(255,255,255,0.06)",
+                    display: "flex", justifyContent: "center", gap: "16px"
+                }}>
+                    {[
+                        { key: "M", action: "Cycle Weapon" },
+                        { key: "?", action: "Toggle Help" },
+                    ].map((s) => (
+                        <div key={s.key} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                            <span style={{
+                                background: "rgba(255,255,255,0.06)", padding: "1px 6px",
+                                borderRadius: "3px", fontSize: "0.55rem", fontWeight: 700,
+                                color: "rgba(255,255,255,0.4)", fontFamily: "monospace",
+                                border: "1px solid rgba(255,255,255,0.08)"
+                            }}>{s.key}</span>
+                            <span style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.25)" }}>{s.action}</span>
+                        </div>
+                    ))}
+                </div>
             </div>
-        </div>
+
+            <style>{`
+                @keyframes helpFadeIn {
+                    from { opacity: 0; transform: translate(-50%, -48%); }
+                    to { opacity: 1; transform: translate(-50%, -50%); }
+                }
+            `}</style>
+        </>
     );
 };
