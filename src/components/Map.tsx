@@ -1304,21 +1304,17 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
             {/* ── Ground decals (blood + oil) ── */}
             {decals}
 
-            {/* ── Swings — in roadside grass blocks between roads ── */}
-            <RigidBody type="fixed" name="swings">
-                {/* Block between x=-40..0, z=-40..0 */}
-                <SwingSet position={[-25, 0, -25]} rotation={[0, 0.3, 0]} seats={2} />
-                {/* Block between x=-40..0, z=0..40 */}
-                <SwingSet position={[-22, 0, 15]} rotation={[0, -0.2, 0]} seats={3} />
-                {/* Block between x=0..40, z=-40..0 */}
-                <SwingSet position={[18, 0, -22]} rotation={[0, Math.PI / 2, 0]} seats={2} />
-                {/* Block between x=0..40, z=0..40 */}
-                <SwingSet position={[15, 0, 22]} rotation={[0, 0, 0]} seats={2} />
-                {/* Block between x=40..80, z=-40..0 */}
-                <SwingSet position={[55, 0, -25]} rotation={[0, 0.5, 0]} seats={2} />
-                {/* Block between x=40..80, z=0..40 */}
-                <SwingSet position={[55, 0, 18]} rotation={[0, -0.3, 0]} seats={3} />
-            </RigidBody>
+            {/* ── Swings — DISABLED for performance testing ── */}
+            {false && (
+                <RigidBody type="fixed" name="swings">
+                    <SwingSet position={[-25, 0, -25]} rotation={[0, 0.3, 0]} seats={2} />
+                    <SwingSet position={[-22, 0, 15]} rotation={[0, -0.2, 0]} seats={3} />
+                    <SwingSet position={[18, 0, -22]} rotation={[0, Math.PI / 2, 0]} seats={2} />
+                    <SwingSet position={[15, 0, 22]} rotation={[0, 0, 0]} seats={2} />
+                    <SwingSet position={[55, 0, -25]} rotation={[0, 0.5, 0]} seats={2} />
+                    <SwingSet position={[55, 0, 18]} rotation={[0, -0.3, 0]} seats={3} />
+                </RigidBody>
+            )}
 
             {/* ── Sheds & Safe Zones — zombie-proof shelters ── */}
             <RigidBody type="fixed" name="sheds">
@@ -1342,31 +1338,22 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
                     color="#5a4030" roofColor="#3a2a20" doorSide="front" />
             </RigidBody>
 
-            {/* ── Watchtowers — elevated safe platforms ── */}
-            <RigidBody type="fixed" name="watchtowers">
-                {/* NW corner overwatch */}
-                <Watchtower position={[-75, 0, -75]} rotation={[0, Math.PI / 4, 0]} />
-                {/* SE corner overwatch */}
-                <Watchtower position={[55, 0, 65]} rotation={[0, -Math.PI / 3, 0]} />
-                {/* Far-east forward post */}
-                <Watchtower position={[92, 0, -85]} rotation={[0, 0, 0]} />
-                {/* NE corner */}
-                <Watchtower position={[75, 0, -75]} rotation={[0, -Math.PI / 4, 0]} />
-                {/* SW corner */}
-                <Watchtower position={[-75, 0, 75]} rotation={[0, Math.PI / 3, 0]} />
-                {/* Center-north roadside */}
-                <Watchtower position={[-20, 0, -55]} rotation={[0, 0, 0]} />
-                {/* Far-east south */}
-                <Watchtower position={[92, 0, 75]} rotation={[0, Math.PI / 2, 0]} />
-                {/* West border */}
-                <Watchtower position={[-85, 0, 10]} rotation={[0, -Math.PI / 6, 0]} />
-                {/* East mid */}
-                <Watchtower position={[60, 0, -55]} rotation={[0, 0.3, 0]} />
-                {/* Central overwatch 1 */}
-                <Watchtower position={[-15, 0, 15]} rotation={[0, Math.PI / 5, 0]} />
-                {/* Central overwatch 2 */}
-                <Watchtower position={[20, 0, -15]} rotation={[0, -Math.PI / 6, 0]} />
-            </RigidBody>
+            {/* ── Watchtowers — DISABLED for performance testing ── */}
+            {false && (
+                <RigidBody type="fixed" name="watchtowers">
+                    <Watchtower position={[-75, 0, -75]} rotation={[0, Math.PI / 4, 0]} />
+                    <Watchtower position={[55, 0, 65]} rotation={[0, -Math.PI / 3, 0]} />
+                    <Watchtower position={[92, 0, -85]} rotation={[0, 0, 0]} />
+                    <Watchtower position={[75, 0, -75]} rotation={[0, -Math.PI / 4, 0]} />
+                    <Watchtower position={[-75, 0, 75]} rotation={[0, Math.PI / 3, 0]} />
+                    <Watchtower position={[-20, 0, -55]} rotation={[0, 0, 0]} />
+                    <Watchtower position={[92, 0, 75]} rotation={[0, Math.PI / 2, 0]} />
+                    <Watchtower position={[-85, 0, 10]} rotation={[0, -Math.PI / 6, 0]} />
+                    <Watchtower position={[60, 0, -55]} rotation={[0, 0.3, 0]} />
+                    <Watchtower position={[-15, 0, 15]} rotation={[0, Math.PI / 5, 0]} />
+                    <Watchtower position={[20, 0, -15]} rotation={[0, -Math.PI / 6, 0]} />
+                </RigidBody>
+            )}
 
             {/* ── Visible border barriers ── */}
             <RigidBody type="fixed" name="boundary">
