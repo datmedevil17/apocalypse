@@ -14,7 +14,6 @@ export function Characters_Pug({ animation, onAnimationFinished, ...props }: any
   useEffect(() => {
     const action = actions[animation]
     if (!action) return
-
     const isOneShot = !['Idle', 'Run', 'Walk', 'Idle_2', 'Idle_2_HeadLow'].includes(animation)
 
     action.reset().fadeIn(0.24).play()

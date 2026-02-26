@@ -39,6 +39,14 @@ interface GameState {
     setLocalPlayerPos: (pos: [number, number, number]) => void
     setLocalPetState: (pos: [number, number, number], rot: [number, number, number, number], animation: string) => void
     setRemotePlayer: (id: string, state: PlayerState | null) => void
+    hitReactTrigger: number
+    triggerHitReact: () => void
+    playerHealth: number
+    damagePlayer: (amount: number) => void
+    overrideZombieAnimation: string | null
+    setOverrideZombieAnimation: (anim: string | null) => void
+    overridePlayerAnimation: string | null
+    setOverridePlayerAnimation: (anim: string | null) => void
 }
 
 export const useStore = create<GameState>((set) => ({
@@ -77,4 +85,12 @@ export const useStore = create<GameState>((set) => ({
         }
         return { remotePlayers: newPlayers }
     }),
+    hitReactTrigger: 0,
+    triggerHitReact: () => set((state) => ({ hitReactTrigger: state.hitReactTrigger + 1 })),
+    playerHealth: 100,
+    damagePlayer: (amount) => set((state) => ({ playerHealth: Math.max(0, state.playerHealth - amount) })),
+    overrideZombieAnimation: null,
+    setOverrideZombieAnimation: (anim) => set({ overrideZombieAnimation: anim }),
+    overridePlayerAnimation: null,
+    setOverridePlayerAnimation: (anim) => set({ overridePlayerAnimation: anim }),
 }))

@@ -1175,6 +1175,100 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
         return d;
     }, []);
 
+    /* ══════════════════════════════════════════════════════════════════
+       ROADSIDE GRASS PROPS — litter and chaos on the grass verges
+       Props scattered on the grass between / beside roads.
+       Grid: roads are at x=±40,±80 and z=±40. Road width ≈ 10 units.
+       Grass starts ±5 units from road centre → we place at ±7 – ±20
+       ══════════════════════════════════════════════════════════════════ */
+    const grassProps = useMemo(() => {
+        const g: React.JSX.Element[] = [];
+        const P = PROP;
+        const G2 = 80;
+
+        // ── North road verge (z = -40, grass north/south of it at z ≈ -47 to -32) ──
+        // West side of north road
+        g.push(<GLTFProp key="gp-n1"  path={P.trashBag1}     position={[-18, 0, -47]} scale={1.4} colliderArgs={[0.5, 0.3, 0.5]} />);
+        g.push(<GLTFProp key="gp-n2"  path={P.barrel}        position={[-24, 0, -45]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-n3"  path={P.barrel}        position={[-23, 0, -43.5]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-n4"  path={P.cinderBlock}   position={[-30, 0, -46]} rotation={[0, 0.4, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+        g.push(<GLTFProp key="gp-n5"  path={P.cinderBlock}   position={[-30, 0.3, -45.5]} rotation={[0, 0.8, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+        g.push(<GLTFProp key="gp-n6"  path={P.wheelsStack}   position={[-35, 0, -48]} rotation={[0, 0.5, 0]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        // East side of north road
+        g.push(<GLTFProp key="gp-n7"  path={P.trashBag2}     position={[14, 0, -47]} scale={1.6} colliderArgs={[0.6, 0.4, 0.6]} />);
+        g.push(<GLTFProp key="gp-n8"  path={P.palletBroken}  position={[22, 0, -45]} rotation={[0, 0.3, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-n9"  path={P.pallet}        position={[22.8, 0, -44.2]} rotation={[0, -0.2, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-n10" path={P.fireHydrant}   position={[28, 0, -46]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        g.push(<GLTFProp key="gp-n11" path={P.trafficCone1}  position={[32, 0, -47.5]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        g.push(<GLTFProp key="gp-n12" path={P.trafficCone2}  position={[33, 0, -46.5]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        // ── South road verge (z = +40) ──
+        g.push(<GLTFProp key="gp-s1"  path={P.trashBag1}     position={[-22, 0, 46]} scale={1.3} colliderArgs={[0.5, 0.3, 0.5]} />);
+        g.push(<GLTFProp key="gp-s2"  path={P.trashBag2}     position={[-21, 0, 44.5]} scale={1.5} colliderArgs={[0.6, 0.4, 0.6]} />);
+        g.push(<GLTFProp key="gp-s3"  path={P.barrel}        position={[-30, 0, 47]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-s4"  path={P.cinderBlock}   position={[-33, 0, 45]} rotation={[0, 1.1, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+        g.push(<GLTFProp key="gp-s5"  path={P.wheelsStack}   position={[18, 0, 47]} rotation={[0, 0.3, 0]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        g.push(<GLTFProp key="gp-s6"  path={P.wheelsStack}   position={[24, 0, 44]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        g.push(<GLTFProp key="gp-s7"  path={P.pallet}        position={[30, 0, 47]} rotation={[0, 0.6, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-s8"  path={P.fireHydrant}   position={[-15, 0, 46]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        g.push(<GLTFProp key="gp-s9"  path={P.trafficCone1}  position={[12, 0, 46.5]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        // ── West road verge (x = -40) ──
+        g.push(<GLTFProp key="gp-w1"  path={P.trashBag1}     position={[-47, 0, -18]} scale={1.4} colliderArgs={[0.5, 0.3, 0.5]} />);
+        g.push(<GLTFProp key="gp-w2"  path={P.barrel}        position={[-46, 0, -25]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-w3"  path={P.barrel}        position={[-44.5, 0, -24]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-w4"  path={P.couch}         position={[-47, 0, 12]} rotation={[0, 0.6, 0]} colliderArgs={[1, 0.5, 0.5]} />);
+        g.push(<GLTFProp key="gp-w5"  path={P.palletBroken}  position={[-45, 0, 22]} rotation={[0, -0.3, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-w6"  path={P.cinderBlock}   position={[-49, 0, 30]} rotation={[0, 0.9, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+        g.push(<GLTFProp key="gp-w7"  path={P.fireHydrant}   position={[-47, 0, -8]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        g.push(<GLTFProp key="gp-w8"  path={P.trafficCone1}  position={[-46, 0, 5]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        g.push(<GLTFProp key="gp-w9"  path={P.pipes}         position={[-48, 0, -35]} rotation={[0, 0.5, 0]} colliderArgs={[1.8, 0.5, 2.5]} />);
+
+        // ── East road verge (x = +40) ──
+        g.push(<GLTFProp key="gp-e1"  path={P.trashBag2}     position={[47, 0, 18]} scale={1.5} colliderArgs={[0.6, 0.4, 0.6]} />);
+        g.push(<GLTFProp key="gp-e2"  path={P.barrel}        position={[46, 0, -20]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-e3"  path={P.barrel}        position={[45, 0, -21.2]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-e4"  path={P.pallet}        position={[48, 0, -32]} rotation={[0, 0.4, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-e5"  path={P.wheelsStack}   position={[47, 0, 28]} rotation={[0, -0.5, 0]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        g.push(<GLTFProp key="gp-e6"  path={P.cinderBlock}   position={[46, 0, 35]} rotation={[0, 0.2, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+        g.push(<GLTFProp key="gp-e7"  path={P.trafficCone2}  position={[46.5, 0, -5]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        g.push(<GLTFProp key="gp-e8"  path={P.fireHydrant}   position={[47, 0, 8]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        // ── Between NW and SW (x ≈ -40, z ≈ 0) — inner grass block ──
+        g.push(<GLTFProp key="gp-nw1" path={P.trashBag1}     position={[-52, 0, -15]} scale={1.3} colliderArgs={[0.5, 0.3, 0.5]} />);
+        g.push(<GLTFProp key="gp-nw2" path={P.barrel}        position={[-55, 0, -8]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-nw3" path={P.palletBroken}  position={[-58, 0, 6]} rotation={[0, 0.6, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-nw4" path={P.wheelsStack}   position={[-54, 0, 20]} rotation={[0, 0.8, 0]} colliderArgs={[0.5, 0.6, 0.5]} />);
+
+        // ── Between NE and SE (x ≈ +40, z ≈ 0) — inner grass block ──
+        g.push(<GLTFProp key="gp-ne1" path={P.trashBag2}     position={[52, 0, -12]} scale={1.4} colliderArgs={[0.6, 0.4, 0.6]} />);
+        g.push(<GLTFProp key="gp-ne2" path={P.cinderBlock}   position={[55, 0, 5]} rotation={[0, 1.0, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+        g.push(<GLTFProp key="gp-ne3" path={P.pallet}        position={[57, 0, 18]} rotation={[0, -0.4, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-ne4" path={P.trafficCone1}  position={[53, 0, -22]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        // ── Far-east (x ≈ 80) road verge ──
+        g.push(<GLTFProp key="gp-fe1" path={P.trashBag1}     position={[G2 + 7, 0, -15]} scale={1.3} colliderArgs={[0.5, 0.3, 0.5]} />);
+        g.push(<GLTFProp key="gp-fe2" path={P.barrel}        position={[G2 + 8, 0, 12]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-fe3" path={P.barrel}        position={[G2 + 6.5, 0, 13]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-fe4" path={P.wheelsStack}   position={[G2 - 9, 0, -15]} rotation={[0, 0.3, 0]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        g.push(<GLTFProp key="gp-fe5" path={P.palletBroken}  position={[G2 - 8, 0, 22]} rotation={[0, 0.5, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-fe6" path={P.fireHydrant}   position={[G2 + 8, 0, -22]} colliderArgs={[0.2, 0.4, 0.2]} />);
+        g.push(<GLTFProp key="gp-fe7" path={P.cinderBlock}   position={[G2 - 9, 0, -27]} rotation={[0, 0.7, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+
+        // ── Outer edges — wide open grass near boundary walls ──
+        g.push(<GLTFProp key="gp-out1" path={P.trashBag1}    position={[-75, 0, 20]} scale={1.5} colliderArgs={[0.5, 0.3, 0.5]} />);
+        g.push(<GLTFProp key="gp-out2" path={P.barrel}       position={[-80, 0, -10]} colliderArgs={[0.35, 0.6, 0.35]} />);
+        g.push(<GLTFProp key="gp-out3" path={P.couch}        position={[60, 0, -70]} rotation={[0, 0.9, 0]} colliderArgs={[1, 0.5, 0.5]} />);
+        g.push(<GLTFProp key="gp-out4" path={P.palletBroken} position={[70, 0, 60]} rotation={[0, 0.4, 0]} colliderArgs={[0.6, 0.1, 0.6]} />);
+        g.push(<GLTFProp key="gp-out5" path={P.wheelsStack}  position={[-60, 0, 55]} rotation={[0, -0.5, 0]} colliderArgs={[0.5, 0.6, 0.5]} />);
+        g.push(<GLTFProp key="gp-out6" path={P.pipes}        position={[55, 0, 75]} rotation={[0, 1.1, 0]} colliderArgs={[1.8, 0.5, 2.5]} />);
+        g.push(<GLTFProp key="gp-out7" path={P.trashBag2}    position={[-70, 0, -55]} scale={1.6} colliderArgs={[0.6, 0.4, 0.6]} />);
+        g.push(<GLTFProp key="gp-out8" path={P.cinderBlock}  position={[50, 0, -75]} rotation={[0, 0.3, 0]} colliderArgs={[0.3, 0.15, 0.15]} />);
+        g.push(<GLTFProp key="gp-out9" path={P.trafficCone2} position={[-55, 0, -70]} colliderArgs={[0.2, 0.4, 0.2]} />);
+
+        return g;
+    }, []);
+
     return (
         <>
             {/* ── Ground: large grassy terrain ── */}
@@ -1299,6 +1393,11 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
             {/* ── Props ── */}
             <RigidBody type="fixed" name="props">
                 {props}
+            </RigidBody>
+
+            {/* ── Roadside grass props ── */}
+            <RigidBody type="fixed" name="grass-props">
+                {grassProps}
             </RigidBody>
 
             {/* ── Ground decals (blood + oil) ── */}

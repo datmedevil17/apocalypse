@@ -17,9 +17,8 @@ import { Characters_Sam_SingleWeapon } from './Characters/Characters_Sam_SingleW
 import { Characters_Shaun_SingleWeapon } from './Characters/Characters_Shaun_SingleWeapon'
 
 import { useSocket } from '../hooks/useSocket'
-
-const WALK_SPEED = 2.5
-const RUN_SPEED = 6.0
+import { PlayerConfig } from '../config/GameConfig'
+import { Bullet } from './Bullet'
 
 const CharacterModels: Record<string, any> = {
   Lis: { Standard: Characters_Lis, SingleWeapon: Characters_Lis_SingleWeapon },
@@ -40,21 +39,15 @@ const VARIANT_MODEL: Record<WeaponVariant, 'Standard' | 'SingleWeapon'> = {
   Standard: 'Standard',     // Ranged weapon (SMG)
 }
 
-/** Map weapon slot → attack animation name */
-const VARIANT_ATTACK: Record<WeaponVariant, string> = {
-  Unarmed: 'Punch',
-  SingleWeapon: 'Slash',
-  Standard: 'Stab',
-}
-
-const JUMP_FORCE = 3
 
 export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE.Group> }) {
   const rb = useRef<RapierRigidBody>(null!)
   const [animation, setAnimation] = useState('Idle')
+  const [bullets, setBullets] = useState<{ id: string; startPos: THREE.Vector3; dir: THREE.Vector3; dmg: number }[]>([])
   const selectedCharacter = useStore((state) => state.selectedCharacter)
   const selectedVariant = useStore((state) => state.selectedVariant)
   const setSelectedVariant = useStore((state) => state.setSelectedVariant)
+  const overridePlayerAnimation = useStore((state) => state.overridePlayerAnimation)
   const gamePhase = useStore((state) => state.gamePhase)
   const { rapier, world } = useRapier()
 
@@ -148,6 +141,13 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
 
     const { forward, backward, left, right, sprint, jump, petting, action1, action2, action3, action4, action5, action6, action7, action8, action9, action0 } = getKeys()
 
+    if (overridePlayerAnimation) {
+      if (animation !== overridePlayerAnimation) {
+          setAnimation(overridePlayerAnimation)
+          setPlayerAnimation(overridePlayerAnimation)
+      }
+    }
+
     // Broadcast state
     const pos = rb.current.translation()
     const rot = groupRef.current.quaternion
@@ -177,7 +177,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
       jumpPressed.current = true
       
       if (isGrounded.current) {
-        rb.current.applyImpulse({ x: 0, y: JUMP_FORCE, z: 0 }, true)
+        rb.current.applyImpulse({ x: 0, y: PlayerConfig.jumpForce, z: 0 }, true)
         inAir.current = true
         setAnimation('Jump')
         setPlayerAnimation('Jump')
@@ -185,7 +185,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
         canDoubleJump.current = false
         // Reset downward velocity slightly before applying second jump
         rb.current.setLinvel({ x: velocity.x, y: 0, z: velocity.z }, true)
-        rb.current.applyImpulse({ x: 0, y: JUMP_FORCE * 0.9, z: 0 }, true)
+        rb.current.applyImpulse({ x: 0, y: PlayerConfig.jumpForce * 0.9, z: 0 }, true)
         
         // Use a different animation or re-trigger Jump for visual feedback
         setAnimation('Run_Jump')
@@ -207,9 +207,94 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
     if (attackPending.current) {
       attackPending.current = false
       const isAnimal = selectedCharacter === 'Pug' || selectedCharacter === 'GermanShepherd'
-      const attackAnim = isAnimal ? 'Attack' : (VARIANT_ATTACK[selectedVariant as WeaponVariant] ?? 'Punch')
+      
+      let attackAnim = 'Punch';
+      if (isAnimal) attackAnim = 'Attack';
+      else if (selectedVariant === 'SingleWeapon') {
+          // Sam and Shaun use guns for SingleWeapon (Pistol)
+          attackAnim = (selectedCharacter === 'Sam' || selectedCharacter === 'Shaun') ? 'Stab' : 'Slash';
+      }
+      else if (selectedVariant === 'Standard') attackAnim = 'Stab';
+
       setAnimation(attackAnim)
       setPlayerAnimation(attackAnim)
+
+      // Snap character rotation to face camera direction instantly on attack
+      const yaw = cameraRotation.current.yaw;
+      const forwardAim = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      const targetRotation = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        Math.atan2(forwardAim.x, forwardAim.z)
+      );
+      groupRef.current.quaternion.copy(targetRotation);
+
+      // Prepare to hit multiple targets if using melee, or shoot a physical bullet if ranged
+      const isGunCharacter = selectedCharacter === 'Sam' || selectedCharacter === 'Shaun';
+      const isMelee = (selectedVariant === 'SingleWeapon' && !isGunCharacter) || selectedVariant === 'Unarmed';
+      
+      // Calculate damage amount
+      let damage = PlayerConfig.damage.punch; // Default Punch
+      if (selectedVariant === 'SingleWeapon') {
+          damage = sprint ? PlayerConfig.damage.slashRun : PlayerConfig.damage.slash;
+      } else if (selectedVariant === 'Standard') {
+          damage = PlayerConfig.damage.ranged; // Ranged
+      }
+
+      if (isMelee) {
+          // 5 rays spread over a ~70 degree arc in front of the player
+          const rayAngles = selectedVariant === 'SingleWeapon' ? [-0.6, -0.3, 0, 0.3, 0.6] : [0]; 
+          const hitZombieIds = new Set<string>();
+
+          for (const angle of rayAngles) {
+              const yaw = cameraRotation.current.yaw;
+              const forwardVec = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+              const rayDir = forwardVec.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+              
+              const rayOrigin = {
+                  x: pos.x + rayDir.x * 0.5,
+                  y: pos.y + 0.5,
+                  z: pos.z + rayDir.z * 0.5
+              };
+              
+              const attackRay = new rapier.Ray(rayOrigin, { x: rayDir.x, y: 0, z: rayDir.z });
+              const attackHit = world.castRay(attackRay, PlayerConfig.attackRange, true);
+              
+              if (attackHit && attackHit.collider) {
+                  const col = attackHit.collider as any;
+                  const hitEntity = col.parent ? col.parent() : null;
+                  
+                  let targetData = null;
+                  if (hitEntity && hitEntity.userData && hitEntity.userData.type === 'zombie') {
+                      targetData = hitEntity.userData;
+                  } else if (col && col.userData && col.userData.type === 'zombie') {
+                      targetData = col.userData;
+                  }
+
+                  if (targetData && targetData.id && !hitZombieIds.has(targetData.id)) {
+                      hitZombieIds.add(targetData.id);
+                      targetData.takeDamage(damage, rayDir);
+                  }
+              }
+          }
+      } else {
+          // Ranged weapon (Gun): Spawn a physical bullet projectile
+          const yaw = cameraRotation.current.yaw;
+          const forwardVec = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+          
+          const rayOrigin = new THREE.Vector3(
+              pos.x + forwardVec.x * 0.8, // Start slightly further out
+              pos.y + 1.2,                // Hand/Gun height
+              pos.z + forwardVec.z * 0.8
+          );
+
+          setBullets(prev => [...prev, {
+              id: Math.random().toString(36).substring(7),
+              startPos: rayOrigin,
+              dir: forwardVec,
+              dmg: damage
+          }]);
+      }
+
       return // let the one-shot finish, skip movement overrides this frame
     }
 
@@ -231,7 +316,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
       movement.add(rightVec.multiplyScalar(rawMovement.x))
       movement.normalize()
 
-      const speed = sprint ? RUN_SPEED : WALK_SPEED
+      const speed = sprint ? PlayerConfig.runSpeed : PlayerConfig.speed
       movement.multiplyScalar(speed)
 
       // Character faces movement direction
@@ -260,9 +345,22 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
       else if (action8) nextAnimation = isAnimal ? 'HitReact_Right' : 'HitReact'
       else if (action9) nextAnimation = isAnimal ? 'Walk' : 'Death'
       else if (action0) nextAnimation = 'Idle'
-      else if (!inAir.current && animation !== 'Jump_Land' && (animation === 'Walk' || animation === 'Run')) {
+      else if (!inAir.current && animation !== 'Jump_Land' && (animation.startsWith('Walk') || animation.startsWith('Run'))) {
         nextAnimation = 'Idle'
       }
+    }
+
+    // Apply Gun animation suffix for characters that support it (Sam, Shaun)
+    const isGunCharacter = selectedCharacter === 'Sam' || selectedCharacter === 'Shaun';
+    const isHoldingGun = selectedVariant === 'Standard' || selectedVariant === 'SingleWeapon';
+    if (isGunCharacter && isHoldingGun && !inAir.current && !attackPending.current) {
+        if (nextAnimation === 'Idle') nextAnimation = 'Idle_Gun';
+        else if (nextAnimation === 'Walk') nextAnimation = 'Walk_Gun';
+        else if (nextAnimation === 'Run') nextAnimation = 'Run_Gun';
+    }
+
+    if (overridePlayerAnimation) {
+        nextAnimation = overridePlayerAnimation;
     }
 
     if (nextAnimation !== animation) {
@@ -295,7 +393,8 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
   if (gamePhase !== 'playing') return null
 
   return (
-    <RigidBody
+    <>
+      <RigidBody
       ref={rb}
       colliders={false}
       enabledRotations={[false, false, false]}
@@ -304,6 +403,8 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
       friction={1}
       linearDamping={0.5}
       ccd={true}
+      name="player"
+      userData={{ type: 'player' }}
     >
       <CapsuleCollider args={[0.6, 0.3]} position={[0, 0.9, 0]} />
       <group ref={groupRef}>
@@ -311,10 +412,12 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
           animation={animation}
           weaponSlot={selectedVariant}
           onAnimationFinished={(name: string) => {
-            const isOneShot = !['Idle', 'Run', 'Walk', 'Idle_2', 'Idle_2_HeadLow'].includes(name)
+            const isOneShot = !['Idle', 'Idle_Gun', 'Run', 'Run_Gun', 'Walk', 'Walk_Gun', 'Idle_2', 'Idle_2_HeadLow'].includes(name)
             if (isOneShot) {
-              setAnimation('Idle')
-              setPlayerAnimation('Idle')
+              const isGun = (selectedCharacter === 'Sam' || selectedCharacter === 'Shaun') && (selectedVariant === 'Standard' || selectedVariant === 'SingleWeapon');
+              const returnAnim = isGun ? 'Idle_Gun' : 'Idle';
+              setAnimation(returnAnim)
+              setPlayerAnimation(returnAnim)
             }
           }}
         />
@@ -322,6 +425,18 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
           <WeaponMount characterGroupRef={groupRef} />
         )}
       </group>
-    </RigidBody>
+      </RigidBody>
+      {bullets.map(b => (
+          <Bullet 
+              key={b.id} 
+              id={b.id} 
+              startPosition={b.startPos} 
+              direction={b.dir} 
+              damage={b.dmg} 
+              speed={20} // 20 units per second so they are visible tracers
+              onHit={(id) => setBullets(prev => prev.filter(bullet => bullet.id !== id))} 
+          />
+      ))}
+    </>
   )
 }

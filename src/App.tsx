@@ -7,6 +7,7 @@ import { UI } from "./components/UI";
 import { Minimap } from "./components/Minimap";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { Routes, Route, Navigate } from "react-router-dom";
+import { TestZomExperience } from "./components/TestZomExperience";
 
 const Controls = {
   forward: "forward",
@@ -72,6 +73,7 @@ function App() {
             <Route path="/scene3" element={<Experience level={3} />} />
             <Route path="/scene4" element={<Experience level={4} />} />
             <Route path="/scene5" element={<Experience level={5} />} />
+            <Route path="/testzom" element={<TestZomExperience />} />
             <Route path="/" element={<Navigate to="/scene3" replace />} />
           </Routes>
         </Suspense>
