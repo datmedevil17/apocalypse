@@ -1,37 +1,51 @@
-import { useStore, baseCharacters } from "../store";
+import { useStore } from "../store";
 import { useUIStore } from "../uiStore";
 import { HelpMenu } from "./HelpMenu";
 import { CharacterConfig, type CharacterType } from "../config/GameConfig";
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useProfile } from "../hooks/useProfile";
+import { useBattle } from "../hooks/useBattle";
+import { useSocket } from "../hooks/useSocket";
 import { useEffect, useState } from 'react';
+
+const CHARACTER_TYPES = ["Sam", "Shaun", "Lis", "Matt", "Pug", "GermanShepherd"] as CharacterType[];
 
 export const UI = () => {
     const { connected } = useWallet();
-    const { initializeProfile, delegateGame, startGame, killZombie, endGame, undelegateGame, checkProfileExists, createSession, isSessionLoading, sessionToken } = useProfile();
+    const { initializeProfile, checkProfileExists } = useProfile();
+    const { 
+        createBattleAccount, delegateBattleAccount, startBattle, joinBattle,
+        endBattle, commitBattle
+    } = useBattle();
+    
     const {
         selectedCharacter, setSelectedCharacter,
         selectedVariant, setSelectedVariant,
-        selectedPet, setSelectedPet,
         gamePhase, setGamePhase,
-        playerHealth, setOnZombieKilled,
+        playerHealth,
         gaslessNotifications,
-        survivalTimeRemaining, decrementSurvivalTime
+        survivalTimeRemaining, decrementSurvivalTime,
+        maxPlayers, setMaxPlayers, battleRoomId,
+        remotePlayers
     } = useStore();
+    const { broadcastGameStart } = useSocket();
     const toggleHelp = useUIStore((state) => state.toggleHelp);
     
     const [isUndelegating, setIsUndelegating] = useState(false);
+    const [joinRoomId, setJoinRoomId] = useState("");
 
     // Rollup sequence states
     const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'done'>('idle');
-    const [sessionStatus, setSessionStatus] = useState<'idle' | 'loading' | 'done'>('idle');
-    const [delegateStatus, setDelegateStatus] = useState<'idle' | 'loading' | 'done'>('idle');
-    const [startStatus, setStartStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [hostCreateStatus, setHostCreateStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [hostDelegateStatus, setHostDelegateStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [hostStartStatus, setHostStartStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'done'>('idle');
 
-    useEffect(() => {
-        setOnZombieKilled(killZombie);
-    }, [killZombie, setOnZombieKilled]);
+    // (killZombie logic handled differently now or safely unused here directly via UI)
+    // useEffect(() => {
+    //     setOnZombieKilled(killZombie);
+    // }, [killZombie, setOnZombieKilled]);
 
     // Auto-check if profile exists when connected
     useEffect(() => {
@@ -41,35 +55,26 @@ export const UI = () => {
                     setInitStatus('done');
                 }
             });
-            // If the SDK generated session token already exists in IndexedDB, mark step as done
-            if (sessionToken) {
-                setSessionStatus('done');
-            }
         } else {
             setInitStatus('idle');
-            setSessionStatus('idle');
-            setDelegateStatus('idle');
-            setStartStatus('idle');
         }
-    }, [connected, checkProfileExists, sessionToken]);
+    }, [connected, checkProfileExists]);
 
     // Handle Game Over
     useEffect(() => {
         if (gamePhase === 'playing' && playerHealth <= 0 && survivalTimeRemaining > 0) {
             console.log("Player died. Triggering game over sequence...");
             setGamePhase('over');
-            endGame().catch(console.error);
         }
-    }, [playerHealth, gamePhase, setGamePhase, endGame, survivalTimeRemaining]);
+    }, [playerHealth, gamePhase, setGamePhase, survivalTimeRemaining]);
 
     // Handle Victory
     useEffect(() => {
         if (gamePhase === 'playing' && survivalTimeRemaining <= 0 && playerHealth > 0) {
             console.log("Player survived. Triggering won sequence...");
             setGamePhase('won');
-            endGame().catch(console.error);
         }
-    }, [survivalTimeRemaining, gamePhase, playerHealth, setGamePhase, endGame]);
+    }, [survivalTimeRemaining, gamePhase, playerHealth, setGamePhase]);
 
     // Timer Tick
     useEffect(() => {
@@ -155,42 +160,61 @@ export const UI = () => {
                 }}>
                     The Dead Walk Among Us
                 </p>
-
-                <button
-                    onClick={() => setGamePhase('selection')}
-                    style={{
-                        marginTop: "70px",
-                        padding: "18px 64px",
-                        fontSize: "1.1rem",
-                        fontFamily: "'Inter', sans-serif",
-                        fontWeight: 700,
-                        background: "transparent",
-                        border: "1px solid rgba(255,69,0,0.6)",
-                        color: "#ff6030",
-                        cursor: "pointer",
-                        transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.3rem",
-                        position: "relative", zIndex: 2,
-                        boxShadow: "0 0 20px rgba(255,69,0,0.15), inset 0 0 20px rgba(255,69,0,0.05)"
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(255,69,0,0.12)";
-                        e.currentTarget.style.borderColor = "rgba(255,69,0,0.9)";
-                        e.currentTarget.style.boxShadow = "0 0 40px rgba(255,69,0,0.3), inset 0 0 30px rgba(255,69,0,0.08)";
-                        e.currentTarget.style.transform = "translateY(-2px)";
-                        e.currentTarget.style.color = "#ff8050";
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "transparent";
-                        e.currentTarget.style.borderColor = "rgba(255,69,0,0.6)";
-                        e.currentTarget.style.boxShadow = "0 0 20px rgba(255,69,0,0.15), inset 0 0 20px rgba(255,69,0,0.05)";
-                        e.currentTarget.style.transform = "translateY(0)";
-                        e.currentTarget.style.color = "#ff6030";
-                    }}
-                >
-                    Enter Arena
-                </button>
+                {!connected ? (
+                    <div style={{ position: "relative", zIndex: 2, marginTop: "70px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                        <p style={{ fontFamily: "monospace", opacity: 0.6, letterSpacing: "2px" }}>CONNECT TO BEGIN</p>
+                        <WalletMultiButton style={{ padding: "18px 48px", background: "rgba(255,69,0,0.2)", border: "1px solid rgba(255,69,0,0.6)", borderRadius: "8px" }} />
+                    </div>
+                ) : (
+                    <button
+                        onClick={async () => {
+                            if (initStatus !== 'done') {
+                                setInitStatus('loading');
+                                try {
+                                    await initializeProfile();
+                                    setInitStatus('done');
+                                } catch (e) {
+                                    console.error("Init failed", e);
+                                    setInitStatus('idle');
+                                    return;
+                                }
+                            }
+                            setGamePhase('lobby');
+                        }}
+                        style={{
+                            marginTop: "70px",
+                            padding: "18px 64px",
+                            fontSize: "1.1rem",
+                            fontFamily: "'Inter', sans-serif",
+                            fontWeight: 700,
+                            background: "transparent",
+                            border: "1px solid rgba(255,69,0,0.6)",
+                            color: "#ff6030",
+                            cursor: "pointer",
+                            transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.3rem",
+                            position: "relative", zIndex: 2,
+                            boxShadow: "0 0 20px rgba(255,69,0,0.15), inset 0 0 20px rgba(255,69,0,0.05)"
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "rgba(255,69,0,0.12)";
+                            e.currentTarget.style.borderColor = "rgba(255,69,0,0.9)";
+                            e.currentTarget.style.boxShadow = "0 0 40px rgba(255,69,0,0.3), inset 0 0 30px rgba(255,69,0,0.08)";
+                            e.currentTarget.style.transform = "translateY(-2px)";
+                            e.currentTarget.style.color = "#ff8050";
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "transparent";
+                            e.currentTarget.style.borderColor = "rgba(255,69,0,0.6)";
+                            e.currentTarget.style.boxShadow = "0 0 20px rgba(255,69,0,0.15), inset 0 0 20px rgba(255,69,0,0.05)";
+                            e.currentTarget.style.transform = "translateY(0)";
+                            e.currentTarget.style.color = "#ff6030";
+                        }}
+                    >
+                        {initStatus === 'loading' ? "INITIALIZING..." : "ENTER ARENA"}
+                    </button>
+                )}
 
                 <p style={{
                     position: "absolute", bottom: "30px",
@@ -222,263 +246,228 @@ export const UI = () => {
         );
     }
 
-    if (gamePhase === 'selection') {
+    if (gamePhase === 'lobby') {
         return (
             <div style={{
                 position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
                 display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                 background: "linear-gradient(160deg, rgba(8,8,18,0.97) 0%, rgba(15,12,25,0.98) 50%, rgba(8,8,18,0.97) 100%)",
-                backdropFilter: "blur(16px)",
-                zIndex: 1000, color: "white", pointerEvents: "all",
-                overflowY: "auto", overflowX: "hidden", padding: "40px 0"
+                backdropFilter: "blur(16px)", zIndex: 1000, color: "white", pointerEvents: "all"
             }}>
-                {/* Ambient glow orbs */}
-                <div style={{
-                    position: "absolute", top: "10%", left: "15%", width: "300px", height: "300px",
-                    background: "radial-gradient(circle, rgba(79,172,254,0.08) 0%, transparent 70%)",
-                    borderRadius: "50%", filter: "blur(40px)", pointerEvents: "none"
-                }} />
-                <div style={{
-                    position: "absolute", bottom: "10%", right: "10%", width: "250px", height: "250px",
-                    background: "radial-gradient(circle, rgba(0,242,254,0.06) 0%, transparent 70%)",
-                    borderRadius: "50%", filter: "blur(40px)", pointerEvents: "none"
-                }} />
+                <div style={{ position: "absolute", top: 20, right: 20, zIndex: 10 }}>
+                    <WalletMultiButton />
+                </div>
 
                 <h2 style={{
-                    fontSize: "clamp(1.8rem, 3.5vw, 2.8rem)", marginBottom: "10px",
+                    fontSize: "clamp(1.8rem, 3.5vw, 2.8rem)", marginBottom: "40px",
                     fontFamily: "'Inter', sans-serif", fontWeight: 800,
-                    background: "linear-gradient(135deg, #4facfe, #00f2fe)",
+                    background: "linear-gradient(135deg, #ff4500, #ff8c00)",
                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                     letterSpacing: "0.15rem"
-                }}>EQUIP YOURSELF</h2>
-                <p style={{ fontSize: "0.8rem", opacity: 0.35, marginBottom: "40px", letterSpacing: "0.2rem", fontFamily: "monospace" }}>
-                    CHOOSE YOUR LOADOUT
-                </p>
+                }}>
+                    {(hostCreateStatus === 'done' || joinStatus === 'done') ? "STAGING AREA" : "MULTIPLAYER LOBBY"}
+                </h2>
 
-                <div style={{ display: "flex", gap: "24px", alignItems: "stretch", flexWrap: "wrap", justifyContent: "center" }}>
-                    {/* Character Column */}
-                    <div style={{
-                        background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
-                        padding: "28px", borderRadius: "16px",
-                        border: "1px solid rgba(255,255,255,0.06)", width: "280px",
-                        boxShadow: "0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)"
-                    }}>
-                        <h3 style={{
-                            margin: "0 0 20px 0", fontSize: "0.7rem", opacity: 0.4,
-                            letterSpacing: "0.2rem", fontFamily: "'Inter', sans-serif", fontWeight: 600
-                        }}>SURVIVOR</h3>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                            {baseCharacters.map((char) => (
-                                <button key={char} onClick={() => setSelectedCharacter(char)} style={{
-                                    padding: "14px 18px", borderRadius: "10px",
-                                    border: selectedCharacter === char ? "1px solid rgba(76,175,80,0.5)" : "1px solid rgba(255,255,255,0.04)",
-                                    background: selectedCharacter === char
-                                        ? "linear-gradient(135deg, rgba(76,175,80,0.2) 0%, rgba(76,175,80,0.08) 100%)"
-                                        : "rgba(255,255,255,0.02)",
-                                    color: selectedCharacter === char ? "#8eff8e" : "rgba(255,255,255,0.6)",
-                                    cursor: "pointer", fontSize: "0.95rem", transition: "all 0.25s ease",
-                                    textAlign: "left", fontWeight: selectedCharacter === char ? 600 : 400,
-                                    fontFamily: "'Inter', sans-serif",
-                                    boxShadow: selectedCharacter === char ? "0 0 20px rgba(76,175,80,0.15)" : "none",
-                                    letterSpacing: "0.05rem"
-                                }}>
-                                    {char}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Weapon & Companion Column */}
-                    <div style={{
-                        background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
-                        padding: "28px", borderRadius: "16px",
-                        border: "1px solid rgba(255,255,255,0.06)", width: "280px",
-                        boxShadow: "0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)"
-                    }}>
-                        <h3 style={{
-                            margin: "0 0 20px 0", fontSize: "0.7rem", opacity: 0.4,
-                            letterSpacing: "0.2rem", fontFamily: "'Inter', sans-serif", fontWeight: 600
-                        }}>LOADOUT</h3>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                            {([
-                                { variant: 'Unarmed' as const, label: 'UNARMED', desc: 'Fists only — raw strength', icon: '👊' },
-                                { variant: 'SingleWeapon' as const, label: 'MELEE', desc: 'Close-range slasher', icon: '🗡️' },
-                                { variant: 'Standard' as const, label: 'RANGED', desc: 'Firearm loadout', icon: '🔫' },
-                            ]).map(({ variant, label, desc, icon }) => (
-                                <button key={variant} onClick={() => setSelectedVariant(variant)} style={{
-                                    padding: "16px 18px", borderRadius: "10px",
-                                    border: selectedVariant === variant ? "1px solid rgba(33,150,243,0.5)" : "1px solid rgba(255,255,255,0.04)",
-                                    background: selectedVariant === variant
-                                        ? "linear-gradient(135deg, rgba(33,150,243,0.2) 0%, rgba(33,150,243,0.06) 100%)"
-                                        : "rgba(255,255,255,0.02)",
-                                    color: "white", cursor: "pointer", transition: "all 0.25s ease",
-                                    textAlign: "left", display: "flex", alignItems: "center", gap: "14px",
-                                    boxShadow: selectedVariant === variant ? "0 0 20px rgba(33,150,243,0.15)" : "none"
-                                }}>
-                                    <span style={{ fontSize: "1.4rem", filter: selectedVariant === variant ? "none" : "grayscale(0.6) opacity(0.5)" }}>{icon}</span>
-                                    <div>
-                                        <div style={{
-                                            fontWeight: 600, fontSize: "0.85rem", fontFamily: "'Inter', sans-serif",
-                                            color: selectedVariant === variant ? "#90caf9" : "rgba(255,255,255,0.6)",
-                                            letterSpacing: "0.08rem"
-                                        }}>{label}</div>
-                                        <div style={{ fontSize: "0.65rem", opacity: 0.4, marginTop: "3px", fontFamily: "monospace" }}>{desc}</div>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-
+                {(hostCreateStatus === 'done' || joinStatus === 'done') ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "30px", alignItems: "center", width: "100%", maxWidth: "800px" }}>
+                        {/* Status Header */}
                         <div style={{
-                            margin: "24px 0 0 0", paddingTop: "20px",
-                            borderTop: "1px solid rgba(255,255,255,0.06)"
+                            display: "flex", justifyContent: "space-between", width: "100%",
+                            background: "rgba(0,0,0,0.6)", padding: "20px 30px", borderRadius: "16px",
+                            border: "1px solid rgba(255,255,255,0.1)", alignItems: "center"
                         }}>
-                            <h3 style={{
-                                margin: "0 0 14px 0", fontSize: "0.7rem", opacity: 0.4,
-                                letterSpacing: "0.2rem", fontFamily: "'Inter', sans-serif", fontWeight: 600
-                            }}>COMPANION</h3>
-                            <div style={{ display: "flex", gap: "8px" }}>
-                                {(['Pug', 'GermanShepherd'] as const).map((pet) => (
-                                    <button key={pet} onClick={() => setSelectedPet(pet)} style={{
-                                        flex: 1, padding: "10px", borderRadius: "8px",
-                                        border: selectedPet === pet ? "1px solid rgba(255,152,0,0.5)" : "1px solid rgba(255,255,255,0.04)",
-                                        background: selectedPet === pet
-                                            ? "linear-gradient(135deg, rgba(255,152,0,0.2) 0%, rgba(255,152,0,0.06) 100%)"
-                                            : "rgba(255,255,255,0.02)",
-                                        color: selectedPet === pet ? "#ffcc80" : "rgba(255,255,255,0.5)",
-                                        cursor: "pointer", fontSize: "0.8rem",
-                                        fontFamily: "'Inter', sans-serif", fontWeight: 500,
-                                        transition: "all 0.25s ease",
-                                        boxShadow: selectedPet === pet ? "0 0 16px rgba(255,152,0,0.12)" : "none"
-                                    }}>
-                                        {pet === 'GermanShepherd' ? 'Shepherd' : pet}
-                                    </button>
+                            <div>
+                                <div style={{ fontSize: "0.8rem", opacity: 0.6, letterSpacing: "2px", marginBottom: "4px" }}>ROOM CODE</div>
+                                <div style={{ fontSize: "2.5rem", fontWeight: "bold", letterSpacing: "6px", color: "#00f2fe", textShadow: "0 0 15px rgba(0,242,254,0.3)" }}>
+                                    {battleRoomId}
+                                </div>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                                <div style={{ fontSize: "0.8rem", opacity: 0.6, letterSpacing: "2px", marginBottom: "4px" }}>PLAYERS CONNECTED</div>
+                                <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#8eff8e" }}>
+                                    {Object.keys(remotePlayers).length + 1} <span style={{ fontSize: "1rem", opacity: 0.6 }}>/ {maxPlayers}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Character Selection */}
+                        <div style={{ width: "100%", background: "rgba(0,0,0,0.4)", padding: "24px", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                            <h3 style={{ margin: "0 0 20px 0", letterSpacing: "2px", color: "white", textAlign: "center", fontSize: "1.2rem", fontWeight: 600 }}>CHOOSE YOUR AGENT</h3>
+                            <div style={{ display: "flex", gap: "15px", flexWrap: "wrap", justifyContent: "center" }}>
+                                {CHARACTER_TYPES.map(char => (
+                                    <div 
+                                        key={char}
+                                        onClick={() => setSelectedCharacter(char)}
+                                        style={{
+                                            padding: "16px 24px", background: selectedCharacter === char ? "rgba(255,69,0,0.3)" : "rgba(255,255,255,0.05)",
+                                            border: selectedCharacter === char ? "2px solid #ff4500" : "2px solid transparent",
+                                            borderRadius: "12px", cursor: "pointer", transition: "0.2s all",
+                                            color: selectedCharacter === char ? "white" : "rgba(255,255,255,0.6)",
+                                            fontWeight: selectedCharacter === char ? "bold" : "normal",
+                                            boxShadow: selectedCharacter === char ? "0 0 20px rgba(255,69,0,0.2)" : "none",
+                                            transform: selectedCharacter === char ? "scale(1.05)" : "scale(1)"
+                                        }}
+                                    >
+                                        {char.toUpperCase()}
+                                    </div>
                                 ))}
                             </div>
                         </div>
+
+                        {/* Action Panel */}
+                        <div style={{ display: "flex", gap: "20px", width: "100%", justifyContent: "center" }}>
+                            {hostCreateStatus === 'done' ? (
+                                <>
+                                    <button 
+                                        disabled={hostDelegateStatus !== 'idle'}
+                                        onClick={async () => {
+                                            if (!battleRoomId) return;
+                                            try {
+                                                setHostDelegateStatus('loading');
+                                                await delegateBattleAccount(battleRoomId);
+                                                setHostDelegateStatus('done');
+                                            } catch (e) {
+                                                console.error("Failed to delegate room", e);
+                                                setHostDelegateStatus('idle');
+                                            }
+                                        }}
+                                        style={{ 
+                                            flex: 1, padding: "20px", background: hostDelegateStatus === 'done' ? "rgba(76,175,80,0.2)" : "rgba(255,255,255,0.1)", 
+                                            border: hostDelegateStatus === 'done' ? "1px solid #4CAF50" : "1px solid rgba(255,255,255,0.2)", 
+                                            color: hostDelegateStatus === 'done' ? "#8eff8e" : "white", fontWeight: "bold", borderRadius: "12px", 
+                                            cursor: hostDelegateStatus !== 'idle' ? "not-allowed" : "pointer", transition: "0.3s", letterSpacing: "1px"
+                                        }}
+                                    >
+                                        {hostDelegateStatus === 'done' ? "✓ ROOM DELEGATED" : hostDelegateStatus === 'loading' ? "DELEGATING..." : "1. DELEGATE TO L2"}
+                                    </button>
+
+                                    <button 
+                                        disabled={hostDelegateStatus !== 'done' || hostStartStatus !== 'idle'}
+                                        onClick={async () => {
+                                            if (!battleRoomId) return;
+                                            try {
+                                                setHostStartStatus('loading');
+                                                await startBattle(battleRoomId);
+                                                setHostStartStatus('done');
+                                                broadcastGameStart(battleRoomId);
+                                                setGamePhase('playing');
+                                            } catch (e) {
+                                                console.error("Failed to start room", e);
+                                                setHostStartStatus('idle');
+                                            }
+                                        }}
+                                        style={{ 
+                                            flex: 1, padding: "20px", background: hostStartStatus === 'done' ? "rgba(76,175,80,0.2)" : "rgba(255,69,0,0.3)", 
+                                            border: hostStartStatus === 'done' ? "1px solid #4CAF50" : "1px solid #ff4500", 
+                                            color: hostStartStatus === 'done' ? "#8eff8e" : "white", fontWeight: "bold", borderRadius: "12px", 
+                                            cursor: (hostDelegateStatus !== 'done' || hostStartStatus !== 'idle') ? "not-allowed" : "pointer", transition: "0.3s",
+                                            opacity: hostDelegateStatus !== 'done' ? 0.3 : 1, letterSpacing: "1px"
+                                        }}
+                                    >
+                                        {hostStartStatus === 'done' ? "✓ STARTED" : hostStartStatus === 'loading' ? "STARTING..." : "2. START MATCH"}
+                                    </button>
+                                </>
+                            ) : (
+                                <div style={{ padding: "24px", background: "rgba(0,242,254,0.1)", border: "1px solid rgba(0,242,254,0.3)", borderRadius: "12px", width: "100%", textAlign: "center" }}>
+                                    <div style={{ fontSize: "1.2rem", color: "#00f2fe", fontWeight: "bold", letterSpacing: "2px", animation: "titlePulse 2.5s infinite" }}>
+                                        WAITING FOR HOST TO START MATCH...
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
-
-                <div style={{
-                    marginTop: "32px", display: "flex", flexDirection: "column", gap: "16px",
-                    background: "rgba(0,0,0,0.4)", padding: "24px", borderRadius: "16px",
-                    border: "1px solid rgba(255,255,255,0.05)", width: "340px", alignItems: "center"
-                }}>
-                    <h3 style={{ margin: "0 0 8px 0", fontSize: "0.8rem", color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "2px" }}>Deployment Sequence</h3>
-                    
-                    {!connected ? (
-                        <>
-                            <div style={{ marginBottom: "8px", color: "white", fontSize: "0.9rem", fontWeight: "bold" }}>1. Connect Wallet</div>
-                            <WalletMultiButton style={{ width: "100%", justifyContent: "center" }} />
-                        </>
-                    ) : (
-                        <>
-                            {/* 1. Initialize */}
-                            <button
-                                disabled={initStatus !== 'idle'}
+                ) : (
+                    <div style={{ display: "flex", gap: "40px", alignItems: "stretch" }}>
+                        {/* HOST ROOM PANE */}
+                        <div style={{
+                            background: "rgba(0,0,0,0.5)", padding: "30px", borderRadius: "16px",
+                            border: "1px solid rgba(255,69,0,0.3)", width: "320px", display: "flex", flexDirection: "column", gap: "12px"
+                        }}>
+                            <h3 style={{ margin: "0 0 20px 0", letterSpacing: "2px", color: "#ff8c00" }}>HOST ROOM</h3>
+                            <div style={{ marginBottom: "20px" }}>
+                                <label style={{ display: "block", marginBottom: "8px", fontSize: "0.8rem", opacity: 0.7 }}>
+                                    PLAYERS ({maxPlayers})
+                                </label>
+                                <input 
+                                    type="range" min="1" max="4" value={maxPlayers} 
+                                    onChange={e => setMaxPlayers(parseInt(e.target.value))} 
+                                    style={{ width: "100%" }}
+                                />
+                            </div>
+                            
+                            <button 
+                                disabled={hostCreateStatus !== 'idle'}
                                 onClick={async () => {
-                            try {
-                                setInitStatus('loading');
-                                await initializeProfile();
-                                setInitStatus('done');
-                            } catch (e) {
-                                console.error(e);
-                                setInitStatus('idle'); // Allow retry
-                            }
-                        }}
-                        style={{
-                            width: "100%", padding: "12px", borderRadius: "8px", fontWeight: 700, fontFamily: "'Inter'",
-                            textTransform: "uppercase", letterSpacing: "1px", transition: "all 0.3s",
-                            background: initStatus === 'done' ? "rgba(76,175,80,0.2)" : initStatus === 'loading' ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
-                            border: initStatus === 'done' ? "1px solid #4CAF50" : initStatus === 'loading' ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(79,172,254,0.4)",
-                            color: initStatus === 'done' ? "#8eff8e" : initStatus === 'loading' ? "white" : "#b0e0ff",
-                            cursor: initStatus === 'idle' ? "pointer" : "not-allowed"
-                        }}
-                    >
-                        {initStatus === 'done' ? "✓ Initialized" : initStatus === 'loading' ? "Initializing..." : "1. Initialize Profile"}
-                    </button>
+                                    try {
+                                        setHostCreateStatus('loading');
+                                        const newRoomId = Math.floor(100000 + Math.random() * 900000); // 6-digit
+                                        await createBattleAccount(newRoomId, maxPlayers);
+                                        setHostCreateStatus('done');
+                                    } catch (e) {
+                                        console.error("Failed to create room", e);
+                                        setHostCreateStatus('idle');
+                                    }
+                                }}
+                                style={{ 
+                                    padding: "16px", background: "rgba(255,69,0,0.2)", 
+                                    border: "1px solid #ff4500", 
+                                    color: "white", fontWeight: "bold", borderRadius: "8px", 
+                                    cursor: hostCreateStatus !== 'idle' ? "not-allowed" : "pointer", transition: "0.3s",
+                                    marginTop: "auto"
+                                }}
+                            >
+                                {hostCreateStatus === 'loading' ? "CREATING..." : "CREATE ROOM"}
+                            </button>
+                        </div>
 
-                    {/* 2. Create Session */}
-                    <button
-                        disabled={sessionStatus !== 'idle'}
-                        onClick={async () => {
-                            try {
-                                setSessionStatus('loading');
-                                await createSession();
-                                setSessionStatus('done');
-                            } catch (e) {
-                                console.error(e);
-                                setSessionStatus('idle'); // Allow retry
-                            }
-                        }}
-                        style={{
-                            width: "100%", padding: "12px", borderRadius: "8px", fontWeight: 700, fontFamily: "'Inter'",
-                            textTransform: "uppercase", letterSpacing: "1px", transition: "all 0.3s",
-                            background: sessionStatus === 'done' ? "rgba(76,175,80,0.2)" : sessionStatus === 'loading' || isSessionLoading ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
-                            border: sessionStatus === 'done' ? "1px solid #4CAF50" : sessionStatus === 'loading' || isSessionLoading ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(79,172,254,0.4)",
-                            color: sessionStatus === 'done' ? "#8eff8e" : sessionStatus === 'loading' || isSessionLoading ? "white" : "#b0e0ff",
-                            cursor: sessionStatus === 'idle' ? "pointer" : "not-allowed"
-                        }}
-                    >
-                        {sessionStatus === 'done' ? "✓ Session Created" : sessionStatus === 'loading' || isSessionLoading ? "Creating Session..." : "2. Create Session"}
-                    </button>
-
-                    {/* 3. Delegate */}
-                    <button
-                        disabled={delegateStatus !== 'idle'}
-                        onClick={async () => {
-                            try {
-                                setDelegateStatus('loading');
-                                await delegateGame();
-                                setDelegateStatus('done');
-                            } catch (e) {
-                                console.error(e);
-                                setDelegateStatus('idle'); // Allow retry
-                            }
-                        }}
-                        style={{
-                            width: "100%", padding: "12px", borderRadius: "8px", fontWeight: 700, fontFamily: "'Inter'",
-                            textTransform: "uppercase", letterSpacing: "1px", transition: "all 0.3s",
-                            background: delegateStatus === 'done' ? "rgba(76,175,80,0.2)" : delegateStatus === 'loading' ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
-                            border: delegateStatus === 'done' ? "1px solid #4CAF50" : delegateStatus === 'loading' ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(79,172,254,0.4)",
-                            color: delegateStatus === 'done' ? "#8eff8e" : delegateStatus === 'loading' ? "white" : "#b0e0ff",
-                            cursor: delegateStatus === 'idle' ? "pointer" : "not-allowed"
-                        }}
-                    >
-                        {delegateStatus === 'done' ? "✓ Delegated" : delegateStatus === 'loading' ? "Delegating..." : "3. Delegate Rollup"}
-                    </button>
-
-                    {/* 4. Start */}
-                    <button
-                        disabled={startStatus !== 'idle'}
-                        onClick={async () => {
-                            try {
-                                setStartStatus('loading');
-                                await startGame();
-                                setStartStatus('done');
-                                setGamePhase('playing');
-                            } catch (e) {
-                                console.error(e);
-                                setStartStatus('idle'); // Allow retry
-                            }
-                        }}
-                        style={{
-                            width: "100%", padding: "12px", borderRadius: "8px", fontWeight: 700, fontFamily: "'Inter'",
-                            textTransform: "uppercase", letterSpacing: "1px", transition: "all 0.3s",
-                            background: startStatus === 'done' ? "rgba(76,175,80,0.2)" : startStatus === 'loading' ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
-                            border: startStatus === 'done' ? "1px solid #4CAF50" : startStatus === 'loading' ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(79,172,254,0.4)",
-                            color: startStatus === 'done' ? "#8eff8e" : startStatus === 'loading' ? "white" : "#b0e0ff",
-                            cursor: startStatus === 'idle' ? "pointer" : "not-allowed"
-                        }}
-                    >
-                        {startStatus === 'done' ? "✓ Started" : startStatus === 'loading' ? "Starting..." : "4. Start Session"}
-                    </button>
-                    
-                            <p style={{fontSize: "0.6rem", opacity: 0.5, textAlign: "center", margin: 0, marginTop: "8px", lineHeight: 1.4}}>
-                                {initStatus === 'done' ? "Profile auto-detected! Proceed to delegate." : "If you've played before, Initialize will be auto-completed."}
-                            </p>
-                        </>
-                    )}
-                </div>
+                        {/* JOIN ROOM PANE */}
+                        <div style={{
+                            background: "rgba(0,0,0,0.5)", padding: "30px", borderRadius: "16px",
+                            border: "1px solid rgba(0,242,254,0.3)", width: "320px", display: "flex", flexDirection: "column"
+                        }}>
+                            <h3 style={{ margin: "0 0 20px 0", letterSpacing: "2px", color: "#00f2fe" }}>JOIN ROOM</h3>
+                            
+                            <div style={{ marginBottom: "20px" }}>
+                                <label style={{ display: "block", marginBottom: "8px", fontSize: "0.8rem", opacity: 0.7 }}>
+                                    ENTER 6-DIGIT CODE
+                                </label>
+                                <input 
+                                    type="text" maxLength={6} value={joinRoomId} 
+                                    onChange={e => setJoinRoomId(e.target.value.replace(/\D/g, ''))} 
+                                    style={{ 
+                                        width: "100%", padding: "12px", background: "rgba(0,0,0,0.3)", color: "white",
+                                        border: "1px solid rgba(0,242,254,0.3)", borderRadius: "8px", fontSize: "1.2rem",
+                                        textAlign: "center", letterSpacing: "8px", fontWeight: "bold"
+                                    }}
+                                />
+                            </div>
+                            
+                            <button 
+                                disabled={joinStatus === 'loading' || joinRoomId.length !== 6}
+                                onClick={async () => {
+                                    try {
+                                        console.log("Attempting to join parsed ID:", parseInt(joinRoomId));
+                                        setJoinStatus('loading');
+                                        await joinBattle(parseInt(joinRoomId));
+                                        console.log("Join Success!");
+                                        setJoinStatus('done');
+                                    } catch (e) {
+                                        console.error("Failed to join room", e);
+                                        setJoinStatus('idle');
+                                    }
+                                }}
+                                style={{ 
+                                    padding: "16px", background: "rgba(0,242,254,0.2)", border: "1px solid #00f2fe", 
+                                    color: "white", fontWeight: "bold", borderRadius: "8px", 
+                                    cursor: (joinStatus === 'loading' || joinRoomId.length !== 6) ? "not-allowed" : "pointer",
+                                    marginTop: "auto", transition: "0.3s", opacity: (joinStatus === 'loading' || joinRoomId.length !== 6) ? 0.5 : 1
+                                }}
+                            >
+                                {joinStatus === 'loading' ? "JOINING..." : "JOIN ROOM"}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -500,8 +489,10 @@ export const UI = () => {
                     onClick={async () => {
                         try {
                             setIsUndelegating(true);
-                            await endGame();
-                            await undelegateGame();
+                            if (battleRoomId) {
+                                await endBattle(battleRoomId);
+                                await commitBattle(battleRoomId);
+                            }
                             window.location.reload();
                         } catch (e) {
                             console.error(e);
@@ -539,8 +530,10 @@ export const UI = () => {
                     onClick={async () => {
                         try {
                             setIsUndelegating(true);
-                            await endGame();
-                            await undelegateGame();
+                            if (battleRoomId) {
+                                await endBattle(battleRoomId);
+                                await commitBattle(battleRoomId);
+                            }
                             window.location.reload();
                         } catch (e) {
                             console.error(e);

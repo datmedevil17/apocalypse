@@ -18,10 +18,13 @@ wss.on('connection', (ws: WebSocket) => {
     console.log('New client connected');
 
     ws.on('message', (message: WebSocket.Data) => {
+        // Convert the incoming binary Buffer to a string so browser clients don't receive Blobs
+        const payload = message.toString();
+
         // Broadcast to all OTHER clients (parity with go-server's hub)
         wss.clients.forEach((client) => {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
-                client.send(message);
+                client.send(payload);
             }
         });
     });

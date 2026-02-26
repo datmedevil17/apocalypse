@@ -6,6 +6,7 @@ import idl from '../../apocalypse-contracts/app/src/idl/counter.json';
 
 export const PROGRAM_ID = new PublicKey((idl as any).address);
 export const PROFILE_SEED = "profile";
+export const BATTLE_SEED = "battle";
 
 export function useGameProgram() {
     const { connection } = useConnection();

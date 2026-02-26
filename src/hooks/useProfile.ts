@@ -2,11 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { BN } from '@coral-xyz/anchor';
 import { PublicKey, SystemProgram, Transaction, ComputeBudgetProgram } from '@solana/web3.js';
 import { Buffer } from 'buffer';
-import {
-    delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
-    delegationRecordPdaFromDelegatedAccount,
-    delegationMetadataPdaFromDelegatedAccount
-} from '@magicblock-labs/ephemeral-rollups-sdk';
+
 import { useGameProgram, PROFILE_SEED } from './useGameProgram';
 import { useSessionKeyManager } from '@magicblock-labs/gum-react-sdk';
 import { useConnection } from '@solana/wallet-adapter-react';

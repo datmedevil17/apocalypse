@@ -29,8 +29,8 @@ interface GameState {
     localPetAnimation: string
     remotePlayers: Record<string, PlayerState>
     myId: string
-    gamePhase: 'intro' | 'selection' | 'playing' | 'over' | 'won'
-    setGamePhase: (phase: 'intro' | 'selection' | 'playing' | 'over' | 'won') => void
+    gamePhase: 'intro' | 'lobby' | 'playing' | 'over' | 'won'
+    setGamePhase: (phase: 'intro' | 'lobby' | 'playing' | 'over' | 'won') => void
     setSelectedCharacter: (character: string) => void
     setSelectedVariant: (variant: 'Unarmed' | 'SingleWeapon' | 'Standard') => void
     setSelectedPet: (pet: string) => void
@@ -55,6 +55,17 @@ interface GameState {
     setOverridePlayerAnimation: (anim: string | null) => void
     survivalTimeRemaining: number
     decrementSurvivalTime: () => void
+    isHost: boolean
+    setIsHost: (isHost: boolean) => void
+    battleRoomId: number | null
+    setBattleRoomId: (id: number | null) => void
+    maxPlayers: number
+    setMaxPlayers: (max: number) => void
+
+    zombies: Record<string, { pos: [number, number, number], state: string }>
+    syncZombies: (zombies: Record<string, { pos: [number, number, number], state: string }>) => void
+    updateZombies: (updates: { id: string, pos: [number, number, number], state?: string }[]) => void
+    updateZombieStatus: (id: string, status: string) => void
 }
 
 export const useStore = create<GameState>((set) => ({
@@ -115,4 +126,32 @@ export const useStore = create<GameState>((set) => ({
     setOverridePlayerAnimation: (anim) => set({ overridePlayerAnimation: anim }),
     survivalTimeRemaining: 60, // 60 seconds to survive
     decrementSurvivalTime: () => set((state) => ({ survivalTimeRemaining: Math.max(0, state.survivalTimeRemaining - 1) })),
+    isHost: false,
+    setIsHost: (isHost) => set({ isHost }),
+    battleRoomId: null,
+    setBattleRoomId: (id) => set({ battleRoomId: id }),
+    maxPlayers: 4,
+    setMaxPlayers: (max) => set({ maxPlayers: max }),
+
+    zombies: {},
+    syncZombies: (zombies) => set({ zombies }),
+    updateZombies: (updates) => set((s) => {
+        const newZombies = { ...s.zombies }
+        updates.forEach(u => {
+            if (newZombies[u.id]) {
+                newZombies[u.id].pos = u.pos
+                if (u.state) newZombies[u.id].state = u.state
+            } else {
+                newZombies[u.id] = { pos: u.pos, state: u.state || 'Idle' } // Or default state
+            }
+        })
+        return { zombies: newZombies }
+    }),
+    updateZombieStatus: (id, status) => set((s) => {
+        const newZombies = { ...s.zombies }
+        if (newZombies[id]) {
+            newZombies[id].state = status
+        }
+        return { zombies: newZombies }
+    }),
 }))

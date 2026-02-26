@@ -1,17 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Zombie } from "./Zombie";
 import * as THREE from "three";
 import { useStore } from "../../store";
 
+import { useSocket } from "../../hooks/useSocket";
+
 export const ZombieSpawner = ({
     playerRef,
     maxConcurrent = 50,
+    spawnIntervalMs = 1500,
 }: {
     playerRef: React.RefObject<THREE.Group>;
     maxConcurrent?: number;
+    spawnIntervalMs?: number;
 }) => {
     const gamePhase = useStore(state => state.gamePhase);
     const [zombies, setZombies] = useState<{ id: string, pos: [number, number, number] }[]>([]);
+    const { broadcastZombies } = useSocket();
+    const activeZombiesRef = useRef<Record<string, {pos: [number,number,number], state: string}>>({});
 
     useEffect(() => {
         // Initial spawn of 20 zombies to populate the map quickly
@@ -52,13 +58,36 @@ export const ZombieSpawner = ({
                 };
                 return [...current, newZombie];
             });
-        }, 1500); // 1.5 seconds
+        }, spawnIntervalMs);
 
         return () => clearInterval(interval);
-    }, [gamePhase, maxConcurrent]);
+    }, [gamePhase, maxConcurrent, spawnIntervalMs]);
+
+    // Fast sync interval for positions
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const updates = Object.entries(activeZombiesRef.current).map(([id, data]) => ({
+                id, pos: data.pos, state: data.state
+            }));
+            if (updates.length > 0) {
+                broadcastZombies('zombie_update', { updates });
+            }
+        }, 150); // 150ms sync
+        return () => clearInterval(interval);
+    }, [broadcastZombies]);
+
+    // Full sync interval (catch up late joiners)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            broadcastZombies('zombie_sync', { zombies: activeZombiesRef.current });
+        }, 3000);
+        return () => clearInterval(interval);
+    }, [broadcastZombies]);
 
     const handleDespawn = (id: string) => {
         setZombies(current => current.filter(z => z.id !== id));
+        delete activeZombiesRef.current[id];
+        broadcastZombies('zombie_status', { id, status: 'despawn' });
     };
 
     return (
@@ -66,8 +95,10 @@ export const ZombieSpawner = ({
             {zombies.map((z) => (
                 <Zombie 
                     key={z.id} 
+                    id={z.id}
                     position={z.pos} 
                     playerRef={playerRef} 
+                    activeZombiesRef={activeZombiesRef}
                     onDespawn={() => handleDespawn(z.id)}
                 />
             ))}

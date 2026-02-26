@@ -9,12 +9,16 @@ import { useStore } from "../../store";
 import { ZombieConfig, ZOMBIE_TYPES } from "../../config/GameConfig";
 
 export const Zombie = ({
+    id,
     position,
     playerRef,
+    activeZombiesRef,
     onDespawn,
 }: {
+    id: string;
     position: [number, number, number];
     playerRef: React.RefObject<THREE.Group>;
+    activeZombiesRef?: React.MutableRefObject<Record<string, {pos: [number,number,number], state: string}>>;
     onDespawn?: () => void;
 }) => {
     const rbRef = useRef<RapierRigidBody>(null);
@@ -43,8 +47,7 @@ export const Zombie = ({
     const overrideZombieAnimation = useStore(state => state.overrideZombieAnimation);
     const onZombieKilled = useStore(state => state.onZombieKilled);
 
-    // Unique ID for this zombie instance
-    const zombieId = useMemo(() => Math.random().toString(36).substring(7), []);
+    const zombieId = id;
 
     // Hit reaction state
     const [hitTimer, setHitTimer] = useState(0);
@@ -209,6 +212,14 @@ export const Zombie = ({
                 y: velocity.y,
                 z: velocity.z * 0.9,
             }, true);
+        }
+
+        if (activeZombiesRef && activeZombiesRef.current) {
+            const pos = rbRef.current.translation();
+            activeZombiesRef.current[zombieId] = {
+                pos: [pos.x, pos.y, pos.z],
+                state: hitTimer > 0 ? "HitReact" : state
+            };
         }
     });
 
