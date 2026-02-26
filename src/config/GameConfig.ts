@@ -27,7 +27,7 @@ export interface PlayerStats {
 export const PlayerConfig: PlayerStats = {
     speed: 4.5,
     runSpeed: 8,
-    jumpForce: 2.0,   // First jump force
+    jumpForce: 4.0,   // First jump force
     damage: {
         punch: 20,
         slash: 35,

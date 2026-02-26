@@ -11,9 +11,11 @@ import { ZombieConfig, ZOMBIE_TYPES } from "../../config/GameConfig";
 export const Zombie = ({
     position,
     playerRef,
+    onDespawn,
 }: {
     position: [number, number, number];
     playerRef: React.RefObject<THREE.Group>;
+    onDespawn?: () => void;
 }) => {
     const rbRef = useRef<RapierRigidBody>(null);
     const group = useRef<THREE.Group>(null);
@@ -32,11 +34,14 @@ export const Zombie = ({
 
     const [state, setState] = useState<"idle" | "walk" | "run" | "attack" | "dead">("idle");
     const [health, setHealth] = useState(config.health);
+    const healthRef = useRef(config.health);
+    const isDeadRef = useRef(false);
     
     const lastAttackTime = useRef(0);
     const triggerHitReact = useStore(state => state.triggerHitReact);
     const damagePlayer = useStore(state => (state as any).damagePlayer || (() => {})); // Optional wrapper
     const overrideZombieAnimation = useStore(state => state.overrideZombieAnimation);
+    const onZombieKilled = useStore(state => state.onZombieKilled);
 
     // Unique ID for this zombie instance
     const zombieId = useMemo(() => Math.random().toString(36).substring(7), []);
@@ -47,26 +52,35 @@ export const Zombie = ({
 
     // Method to receive damage
     const takeDamage = (amount: number, knockbackDir?: THREE.Vector3) => {
-        if (health <= 0) return;
-        setHealth(prev => {
-            const newHealth = prev - amount;
-            if (newHealth <= 0) {
-                setState("dead");
-                setTimeout(() => setDespawned(true), 3000); // the body vanishes after 3 seconds
-            } else {
-                setHitTimer(0.8); // Longer freeze for hit reaction
-                
-                // Apply knockback if provided and we have a rigidbody
-                if (knockbackDir && rbRef.current) {
-                    rbRef.current.applyImpulse({
-                        x: knockbackDir.x * 5, // 5 is knockback strength
-                        y: 2,                  // Slight upward pop
-                        z: knockbackDir.z * 5
-                    }, true);
-                }
+        if (isDeadRef.current) return;
+        
+        healthRef.current -= amount;
+        setHealth(Math.max(0, healthRef.current));
+        
+        if (healthRef.current <= 0) {
+            isDeadRef.current = true;
+            setState("dead");
+            setTimeout(() => {
+                setDespawned(true);
+                if (onDespawn) onDespawn();
+            }, 3000); // the body vanishes after 3 seconds
+            
+            if (onZombieKilled) {
+                onZombieKilled(10); // Reward 10 points
+                useStore.getState().addGaslessNotification("Zombie Killed (+10 points)");
             }
-            return newHealth;
-        });
+        } else {
+            setHitTimer(0.8); // Longer freeze for hit reaction
+            
+            // Apply knockback if provided and we have a rigidbody
+            if (knockbackDir && rbRef.current) {
+                rbRef.current.applyImpulse({
+                    x: knockbackDir.x * 5, // 5 is knockback strength
+                    y: 2,                  // Slight upward pop
+                    z: knockbackDir.z * 5
+                }, true);
+            }
+        }
     };
 
     useEffect(() => {

@@ -1,17 +1,85 @@
-import { baseCharacters, useStore } from "../store";
+import { useStore, baseCharacters } from "../store";
 import { useUIStore } from "../uiStore";
 import { HelpMenu } from "./HelpMenu";
 import { CharacterConfig, type CharacterType } from "../config/GameConfig";
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useProfile } from "../hooks/useProfile";
+import { useEffect, useState } from 'react';
 
 export const UI = () => {
+    const { connected } = useWallet();
+    const { initializeProfile, delegateGame, startGame, killZombie, endGame, undelegateGame, checkProfileExists, createSession, isSessionLoading, sessionToken } = useProfile();
     const {
         selectedCharacter, setSelectedCharacter,
         selectedVariant, setSelectedVariant,
         selectedPet, setSelectedPet,
         gamePhase, setGamePhase,
-        playerHealth
+        playerHealth, setOnZombieKilled,
+        gaslessNotifications,
+        survivalTimeRemaining, decrementSurvivalTime
     } = useStore();
     const toggleHelp = useUIStore((state) => state.toggleHelp);
+    
+    const [isUndelegating, setIsUndelegating] = useState(false);
+
+    // Rollup sequence states
+    const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [sessionStatus, setSessionStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [delegateStatus, setDelegateStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [startStatus, setStartStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+
+    useEffect(() => {
+        setOnZombieKilled(killZombie);
+    }, [killZombie, setOnZombieKilled]);
+
+    // Auto-check if profile exists when connected
+    useEffect(() => {
+        if (connected) {
+            checkProfileExists().then(exists => {
+                if (exists) {
+                    setInitStatus('done');
+                }
+            });
+            // If the SDK generated session token already exists in IndexedDB, mark step as done
+            if (sessionToken) {
+                setSessionStatus('done');
+            }
+        } else {
+            setInitStatus('idle');
+            setSessionStatus('idle');
+            setDelegateStatus('idle');
+            setStartStatus('idle');
+        }
+    }, [connected, checkProfileExists, sessionToken]);
+
+    // Handle Game Over
+    useEffect(() => {
+        if (gamePhase === 'playing' && playerHealth <= 0 && survivalTimeRemaining > 0) {
+            console.log("Player died. Triggering game over sequence...");
+            setGamePhase('over');
+            endGame().catch(console.error);
+        }
+    }, [playerHealth, gamePhase, setGamePhase, endGame, survivalTimeRemaining]);
+
+    // Handle Victory
+    useEffect(() => {
+        if (gamePhase === 'playing' && survivalTimeRemaining <= 0 && playerHealth > 0) {
+            console.log("Player survived. Triggering won sequence...");
+            setGamePhase('won');
+            endGame().catch(console.error);
+        }
+    }, [survivalTimeRemaining, gamePhase, playerHealth, setGamePhase, endGame]);
+
+    // Timer Tick
+    useEffect(() => {
+        if (gamePhase === 'playing') {
+            const interval = setInterval(() => {
+                decrementSurvivalTime();
+            }, 1000);
+            return () => clearInterval(interval);
+        }
+    }, [gamePhase, decrementSurvivalTime]);
 
     if (gamePhase === 'intro') {
         return (
@@ -162,7 +230,7 @@ export const UI = () => {
                 background: "linear-gradient(160deg, rgba(8,8,18,0.97) 0%, rgba(15,12,25,0.98) 50%, rgba(8,8,18,0.97) 100%)",
                 backdropFilter: "blur(16px)",
                 zIndex: 1000, color: "white", pointerEvents: "all",
-                overflow: "hidden"
+                overflowY: "auto", overflowX: "hidden", padding: "40px 0"
             }}>
                 {/* Ambient glow orbs */}
                 <div style={{
@@ -290,38 +358,204 @@ export const UI = () => {
                     </div>
                 </div>
 
+                <div style={{
+                    marginTop: "32px", display: "flex", flexDirection: "column", gap: "16px",
+                    background: "rgba(0,0,0,0.4)", padding: "24px", borderRadius: "16px",
+                    border: "1px solid rgba(255,255,255,0.05)", width: "340px", alignItems: "center"
+                }}>
+                    <h3 style={{ margin: "0 0 8px 0", fontSize: "0.8rem", color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "2px" }}>Deployment Sequence</h3>
+                    
+                    {!connected ? (
+                        <>
+                            <div style={{ marginBottom: "8px", color: "white", fontSize: "0.9rem", fontWeight: "bold" }}>1. Connect Wallet</div>
+                            <WalletMultiButton style={{ width: "100%", justifyContent: "center" }} />
+                        </>
+                    ) : (
+                        <>
+                            {/* 1. Initialize */}
+                            <button
+                                disabled={initStatus !== 'idle'}
+                                onClick={async () => {
+                            try {
+                                setInitStatus('loading');
+                                await initializeProfile();
+                                setInitStatus('done');
+                            } catch (e) {
+                                console.error(e);
+                                setInitStatus('idle'); // Allow retry
+                            }
+                        }}
+                        style={{
+                            width: "100%", padding: "12px", borderRadius: "8px", fontWeight: 700, fontFamily: "'Inter'",
+                            textTransform: "uppercase", letterSpacing: "1px", transition: "all 0.3s",
+                            background: initStatus === 'done' ? "rgba(76,175,80,0.2)" : initStatus === 'loading' ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
+                            border: initStatus === 'done' ? "1px solid #4CAF50" : initStatus === 'loading' ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(79,172,254,0.4)",
+                            color: initStatus === 'done' ? "#8eff8e" : initStatus === 'loading' ? "white" : "#b0e0ff",
+                            cursor: initStatus === 'idle' ? "pointer" : "not-allowed"
+                        }}
+                    >
+                        {initStatus === 'done' ? "✓ Initialized" : initStatus === 'loading' ? "Initializing..." : "1. Initialize Profile"}
+                    </button>
+
+                    {/* 2. Create Session */}
+                    <button
+                        disabled={sessionStatus !== 'idle'}
+                        onClick={async () => {
+                            try {
+                                setSessionStatus('loading');
+                                await createSession();
+                                setSessionStatus('done');
+                            } catch (e) {
+                                console.error(e);
+                                setSessionStatus('idle'); // Allow retry
+                            }
+                        }}
+                        style={{
+                            width: "100%", padding: "12px", borderRadius: "8px", fontWeight: 700, fontFamily: "'Inter'",
+                            textTransform: "uppercase", letterSpacing: "1px", transition: "all 0.3s",
+                            background: sessionStatus === 'done' ? "rgba(76,175,80,0.2)" : sessionStatus === 'loading' || isSessionLoading ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
+                            border: sessionStatus === 'done' ? "1px solid #4CAF50" : sessionStatus === 'loading' || isSessionLoading ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(79,172,254,0.4)",
+                            color: sessionStatus === 'done' ? "#8eff8e" : sessionStatus === 'loading' || isSessionLoading ? "white" : "#b0e0ff",
+                            cursor: sessionStatus === 'idle' ? "pointer" : "not-allowed"
+                        }}
+                    >
+                        {sessionStatus === 'done' ? "✓ Session Created" : sessionStatus === 'loading' || isSessionLoading ? "Creating Session..." : "2. Create Session"}
+                    </button>
+
+                    {/* 3. Delegate */}
+                    <button
+                        disabled={delegateStatus !== 'idle'}
+                        onClick={async () => {
+                            try {
+                                setDelegateStatus('loading');
+                                await delegateGame();
+                                setDelegateStatus('done');
+                            } catch (e) {
+                                console.error(e);
+                                setDelegateStatus('idle'); // Allow retry
+                            }
+                        }}
+                        style={{
+                            width: "100%", padding: "12px", borderRadius: "8px", fontWeight: 700, fontFamily: "'Inter'",
+                            textTransform: "uppercase", letterSpacing: "1px", transition: "all 0.3s",
+                            background: delegateStatus === 'done' ? "rgba(76,175,80,0.2)" : delegateStatus === 'loading' ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
+                            border: delegateStatus === 'done' ? "1px solid #4CAF50" : delegateStatus === 'loading' ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(79,172,254,0.4)",
+                            color: delegateStatus === 'done' ? "#8eff8e" : delegateStatus === 'loading' ? "white" : "#b0e0ff",
+                            cursor: delegateStatus === 'idle' ? "pointer" : "not-allowed"
+                        }}
+                    >
+                        {delegateStatus === 'done' ? "✓ Delegated" : delegateStatus === 'loading' ? "Delegating..." : "3. Delegate Rollup"}
+                    </button>
+
+                    {/* 4. Start */}
+                    <button
+                        disabled={startStatus !== 'idle'}
+                        onClick={async () => {
+                            try {
+                                setStartStatus('loading');
+                                await startGame();
+                                setStartStatus('done');
+                                setGamePhase('playing');
+                            } catch (e) {
+                                console.error(e);
+                                setStartStatus('idle'); // Allow retry
+                            }
+                        }}
+                        style={{
+                            width: "100%", padding: "12px", borderRadius: "8px", fontWeight: 700, fontFamily: "'Inter'",
+                            textTransform: "uppercase", letterSpacing: "1px", transition: "all 0.3s",
+                            background: startStatus === 'done' ? "rgba(76,175,80,0.2)" : startStatus === 'loading' ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
+                            border: startStatus === 'done' ? "1px solid #4CAF50" : startStatus === 'loading' ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(79,172,254,0.4)",
+                            color: startStatus === 'done' ? "#8eff8e" : startStatus === 'loading' ? "white" : "#b0e0ff",
+                            cursor: startStatus === 'idle' ? "pointer" : "not-allowed"
+                        }}
+                    >
+                        {startStatus === 'done' ? "✓ Started" : startStatus === 'loading' ? "Starting..." : "4. Start Session"}
+                    </button>
+                    
+                            <p style={{fontSize: "0.6rem", opacity: 0.5, textAlign: "center", margin: 0, marginTop: "8px", lineHeight: 1.4}}>
+                                {initStatus === 'done' ? "Profile auto-detected! Proceed to delegate." : "If you've played before, Initialize will be auto-completed."}
+                            </p>
+                        </>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    if (gamePhase === 'over') {
+        return (
+            <div style={{
+                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                background: "rgba(10, 0, 0, 0.9)",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                zIndex: 2000, color: "red", fontFamily: "'Creepster', cursive, serif"
+            }}>
+                <h1 style={{ fontSize: "6rem", margin: 0, textShadow: "0 0 20px rgba(255,0,0,0.5)" }}>YOU DIED</h1>
+                <p style={{ fontFamily: "'Inter', sans-serif", color: "white", marginBottom: "40px", letterSpacing: "2px", opacity: 0.8 }}>
+                    The protocol must be undelegated to record your final score.
+                </p>
                 <button
-                    onClick={() => setGamePhase('playing')}
-                    style={{
-                        marginTop: "48px",
-                        padding: "16px 72px",
-                        fontSize: "0.95rem",
-                        borderRadius: "8px",
-                        background: "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)",
-                        border: "1px solid rgba(79,172,254,0.4)",
-                        color: "#b0e0ff",
-                        fontWeight: 700,
-                        fontFamily: "'Inter', sans-serif",
-                        cursor: "pointer",
-                        letterSpacing: "0.2rem",
-                        textTransform: "uppercase",
-                        boxShadow: "0 0 30px rgba(79,172,254,0.15), inset 0 1px 0 rgba(255,255,255,0.1)",
-                        transition: "all 0.35s cubic-bezier(0.4, 0, 0.2, 1)"
+                    disabled={isUndelegating}
+                    onClick={async () => {
+                        try {
+                            setIsUndelegating(true);
+                            await endGame();
+                            await undelegateGame();
+                            window.location.reload();
+                        } catch (e) {
+                            console.error(e);
+                        } finally {
+                            setIsUndelegating(false);
+                        }
                     }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "linear-gradient(135deg, rgba(79,172,254,0.35) 0%, rgba(0,242,254,0.25) 100%)";
-                        e.currentTarget.style.boxShadow = "0 0 50px rgba(79,172,254,0.3), inset 0 1px 0 rgba(255,255,255,0.15)";
-                        e.currentTarget.style.transform = "translateY(-2px)";
-                        e.currentTarget.style.color = "#ffffff";
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "linear-gradient(135deg, rgba(79,172,254,0.2) 0%, rgba(0,242,254,0.15) 100%)";
-                        e.currentTarget.style.boxShadow = "0 0 30px rgba(79,172,254,0.15), inset 0 1px 0 rgba(255,255,255,0.1)";
-                        e.currentTarget.style.transform = "translateY(0)";
-                        e.currentTarget.style.color = "#b0e0ff";
+                    style={{ 
+                        padding: "16px 32px", background: "linear-gradient(135deg, #f44336, #b71c1c)", color: "white", 
+                        border: "none", cursor: isUndelegating ? "not-allowed" : "pointer", 
+                        fontWeight: "bold", fontSize: "1.2rem", borderRadius: "8px", textTransform: "uppercase",
+                        boxShadow: "0 4px 15px rgba(255,0,0,0.4)", opacity: isUndelegating ? 0.7 : 1
                     }}
                 >
-                    Deploy
+                    {isUndelegating ? "COMMITTING TO BASE LAYER..." : "COMMIT SCORE & RESTART"}
+                </button>
+            </div>
+        );
+    }
+
+    if (gamePhase === 'won') {
+        return (
+            <div style={{
+                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                background: "radial-gradient(ellipse at center, rgba(10, 30, 10, 0.9) 0%, rgba(0, 0, 0, 0.95) 100%)",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                zIndex: 2000, color: "#8eff8e"
+            }}>
+                <h1 style={{ fontSize: "4.5rem", margin: 0, textShadow: "0 0 20px rgba(76,175,80,0.5)", fontFamily: "'Inter', sans-serif", fontWeight: 900, textTransform: "uppercase", letterSpacing: "4px" }}>YOU SURVIVED</h1>
+                <p style={{ fontFamily: "'Inter', sans-serif", color: "white", marginBottom: "40px", letterSpacing: "2px", opacity: 0.8 }}>
+                    Dawn has arrived. The protocol must be undelegated to record your victory.
+                </p>
+                <button
+                    disabled={isUndelegating}
+                    onClick={async () => {
+                        try {
+                            setIsUndelegating(true);
+                            await endGame();
+                            await undelegateGame();
+                            window.location.reload();
+                        } catch (e) {
+                            console.error(e);
+                        } finally {
+                            setIsUndelegating(false);
+                        }
+                    }}
+                    style={{ 
+                        padding: "16px 32px", background: "linear-gradient(135deg, #4CAF50, #1B5E20)", color: "white", 
+                        border: "none", cursor: isUndelegating ? "not-allowed" : "pointer", 
+                        fontWeight: "bold", fontSize: "1.2rem", borderRadius: "8px", textTransform: "uppercase",
+                        boxShadow: "0 4px 15px rgba(76,175,80,0.4)", opacity: isUndelegating ? 0.7 : 1
+                    }}
+                >
+                    {isUndelegating ? "COMMITTING TO BASE LAYER..." : "COMMIT SCORE & RESTART"}
                 </button>
             </div>
         );
@@ -337,8 +571,41 @@ export const UI = () => {
         return '#F44336';
     };
 
+    const formatTime = (seconds: number) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+    };
+
     return (
         <>
+            {/* Survival Timer */}
+            <div style={{
+                position: "fixed", top: "20px", left: "50%", transform: "translateX(-50%)",
+                display: "flex", flexDirection: "column", alignItems: "center",
+                background: "rgba(0,0,0,0.6)", padding: "12px 32px", borderRadius: "16px",
+                border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(10px)",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                zIndex: 50
+            }}>
+                <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "3px", marginBottom: "4px", fontFamily: "'Inter', sans-serif" }}>SURVIVAL TIME</span>
+                <span style={{ 
+                    fontSize: "2.5rem", fontWeight: "bold", fontFamily: "monospace",
+                    color: survivalTimeRemaining <= 10 ? "#ff4444" : "#ffffff",
+                    textShadow: survivalTimeRemaining <= 10 ? "0 0 15px rgba(255,68,68,0.5)" : "none",
+                    animation: survivalTimeRemaining <= 10 ? "pulse-timer-red 1s infinite alternate" : "none"
+                }}>
+                    {formatTime(survivalTimeRemaining)}
+                </span>
+            </div>
+
+            <style>{`
+                @keyframes pulse-timer-red {
+                    from { opacity: 1; }
+                    to { opacity: 0.5; }
+                }
+            `}</style>
+
             {/* Low health warning effect */}
             {healthPercent <= 25 && healthPercent > 0 && (
                 <div style={{
@@ -355,8 +622,55 @@ export const UI = () => {
                 }} />
             )}
 
-            {/* Help button — top right */}
-            <div style={{ position: "absolute", top: "20px", right: "20px", zIndex: 100 }}>
+            {/* Gasless Notifications Area */}
+            <div style={{
+                position: "fixed", top: "80px", right: "20px",
+                display: "flex", flexDirection: "column", gap: "8px", zIndex: 100,
+                pointerEvents: "none", alignItems: "flex-end"
+            }}>
+                {gaslessNotifications.map(notification => (
+                    <div key={notification.id} style={{
+                        background: "rgba(0,0,0,0.6)", backdropFilter: "blur(12px)",
+                        border: "1px solid rgba(0, 242, 254, 0.4)",
+                        padding: "10px 16px", borderRadius: "8px",
+                        display: "flex", alignItems: "center", gap: "10px",
+                        boxShadow: "0 4px 16px rgba(0,0,0,0.4), 0 0 10px rgba(0,242,254,0.15)",
+                        animation: "slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards",
+                        color: "#b0e0ff", fontFamily: "'Inter', sans-serif"
+                    }}>
+                        <div style={{
+                            width: "8px", height: "8px", borderRadius: "50%",
+                            background: "#00f2fe", boxShadow: "0 0 8px #00f2fe"
+                        }} />
+                        <div>
+                            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.5px" }}>Gasless TX</div>
+                            <div style={{ fontSize: "0.7rem", opacity: 0.8 }}>{notification.message}</div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Top Right Controls (Wallet & Help) */}
+            <div style={{ 
+                position: "absolute", top: "20px", right: "20px", zIndex: 100,
+                display: "flex", gap: "12px", alignItems: "center" 
+            }}>
+                <WalletMultiButton style={{
+                    background: "rgba(255,255,255,0.04)",
+                    backdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    color: "rgba(255,255,255,0.9)",
+                    fontFamily: "'Inter', sans-serif",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.1rem",
+                    fontSize: "0.85rem",
+                    height: "36px",
+                    lineHeight: "36px",
+                    padding: "0 16px",
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.3)"
+                }} />
+                
                 <button onClick={toggleHelp} style={{
                     width: "36px", height: "36px", borderRadius: "8px",
                     background: "rgba(255,255,255,0.04)",
@@ -515,6 +829,10 @@ export const UI = () => {
                 @keyframes pulse-red {
                     from { border-color: rgba(244, 67, 54, 0.1); }
                     to { border-color: rgba(244, 67, 54, 0.4); }
+                }
+                @keyframes slideInRight {
+                    from { transform: translateX(50px); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
                 }
             `}</style>
             <HelpMenu />

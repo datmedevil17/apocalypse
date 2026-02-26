@@ -29,8 +29,8 @@ interface GameState {
     localPetAnimation: string
     remotePlayers: Record<string, PlayerState>
     myId: string
-    gamePhase: 'intro' | 'selection' | 'playing'
-    setGamePhase: (phase: 'intro' | 'selection' | 'playing') => void
+    gamePhase: 'intro' | 'selection' | 'playing' | 'over' | 'won'
+    setGamePhase: (phase: 'intro' | 'selection' | 'playing' | 'over' | 'won') => void
     setSelectedCharacter: (character: string) => void
     setSelectedVariant: (variant: 'Unarmed' | 'SingleWeapon' | 'Standard') => void
     setSelectedPet: (pet: string) => void
@@ -44,10 +44,17 @@ interface GameState {
     triggerHitReact: () => void
     playerHealth: number
     damagePlayer: (amount: number) => void
+    onZombieKilled: ((reward: number) => void) | null
+    setOnZombieKilled: (fn: (reward: number) => void) => void
+    gaslessNotifications: { id: string, message: string }[]
+    addGaslessNotification: (message: string) => void
+    removeGaslessNotification: (id: string) => void
     overrideZombieAnimation: string | null
     setOverrideZombieAnimation: (anim: string | null) => void
     overridePlayerAnimation: string | null
     setOverridePlayerAnimation: (anim: string | null) => void
+    survivalTimeRemaining: number
+    decrementSurvivalTime: () => void
 }
 
 export const useStore = create<GameState>((set) => ({
@@ -93,8 +100,19 @@ export const useStore = create<GameState>((set) => ({
     triggerHitReact: () => set((state) => ({ hitReactTrigger: state.hitReactTrigger + 1 })),
     playerHealth: CharacterConfig[baseCharacters[0] as CharacterType]?.maxHealth || 100,
     damagePlayer: (amount) => set((state) => ({ playerHealth: Math.max(0, state.playerHealth - amount) })),
+    onZombieKilled: null,
+    setOnZombieKilled: (fn) => set({ onZombieKilled: fn }),
+    gaslessNotifications: [],
+    addGaslessNotification: (message) => set((state) => ({
+        gaslessNotifications: [...state.gaslessNotifications, { id: Math.random().toString(36).substr(2, 9), message }]
+    })),
+    removeGaslessNotification: (id) => set((state) => ({
+        gaslessNotifications: state.gaslessNotifications.filter(n => n.id !== id)
+    })),
     overrideZombieAnimation: null,
     setOverrideZombieAnimation: (anim) => set({ overrideZombieAnimation: anim }),
     overridePlayerAnimation: null,
     setOverridePlayerAnimation: (anim) => set({ overridePlayerAnimation: anim }),
+    survivalTimeRemaining: 60, // 60 seconds to survive
+    decrementSurvivalTime: () => set((state) => ({ survivalTimeRemaining: Math.max(0, state.survivalTimeRemaining - 1) })),
 }))
