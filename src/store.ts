@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { CharacterConfig, type CharacterType } from './config/GameConfig'
 
 export const baseCharacters = ["Lis", "Matt", "Sam", "Shaun"]
 export const petCharacters = ["Pug", "GermanShepherd"]
@@ -64,7 +65,10 @@ export const useStore = create<GameState>((set) => ({
     myId: Math.random().toString(36).substr(2, 9),
     gamePhase: 'intro',
     setGamePhase: (phase) => set({ gamePhase: phase }),
-    setSelectedCharacter: (character) => set({ selectedCharacter: character }),
+    setSelectedCharacter: (character) => set({
+        selectedCharacter: character,
+        playerHealth: CharacterConfig[character as CharacterType]?.maxHealth || 100
+    }),
     setSelectedVariant: (variant) => set({ selectedVariant: variant }),
     setSelectedPet: (pet) => set({ selectedPet: pet }),
     setTimeOfDay: (time) => set((state) => ({ timeOfDay: typeof time === 'function' ? time(state.timeOfDay) : time })),
@@ -87,7 +91,7 @@ export const useStore = create<GameState>((set) => ({
     }),
     hitReactTrigger: 0,
     triggerHitReact: () => set((state) => ({ hitReactTrigger: state.hitReactTrigger + 1 })),
-    playerHealth: 100,
+    playerHealth: CharacterConfig[baseCharacters[0] as CharacterType]?.maxHealth || 100,
     damagePlayer: (amount) => set((state) => ({ playerHealth: Math.max(0, state.playerHealth - amount) })),
     overrideZombieAnimation: null,
     setOverrideZombieAnimation: (anim) => set({ overrideZombieAnimation: anim }),

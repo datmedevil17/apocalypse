@@ -31,6 +31,7 @@ export function Pet({ playerRef }: { playerRef: React.MutableRefObject<THREE.Gro
     const PetModel = PetModels[selectedPet] || Characters_Pug
     const [, getKeys] = useKeyboardControls()
     const setLocalPetState = useStore((state) => state.setLocalPetState)
+    const playerHealth = useStore((state) => state.playerHealth)
 
     const petSpawnPos = useMemo(() => {
         return [Math.random() * 10 - 5, 5, Math.random() * 10 - 5] as [number, number, number]
@@ -59,6 +60,8 @@ export function Pet({ playerRef }: { playerRef: React.MutableRefObject<THREE.Gro
         const petPosVec = new THREE.Vector3(petPos.x, petPos.y, petPos.z)
         const distToPlayer = petPosVec.distanceTo(playerPos)
 
+        const isDead = playerHealth <= 0
+
         // Sync timers
         const playerMoved = lastPlayerPos.current.distanceTo(playerPos) > 0.05
         if (playerMoved) {
@@ -75,8 +78,13 @@ export function Pet({ playerRef }: { playerRef: React.MutableRefObject<THREE.Gro
         let isMoving = false
         let currentEmoji = null
 
+        if (isDead) {
+            nextAnimation = 'Death'
+            speed = 0
+            isMoving = false
+        }
         // PETTING LOGIC
-        if (petting && distToPlayer < 2) {
+        else if (petting && distToPlayer < 2) {
             nextAnimation = 'Idle_2_HeadLow'
             currentEmoji = EMOJI_MAP.love
             speed = 0

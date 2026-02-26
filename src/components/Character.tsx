@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { useRef, useState, useMemo, useEffect, useCallback } from 'react'
+import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import { RigidBody, CapsuleCollider, RapierRigidBody, useRapier } from '@react-three/rapier'
@@ -17,7 +17,7 @@ import { Characters_Sam_SingleWeapon } from './Characters/Characters_Sam_SingleW
 import { Characters_Shaun_SingleWeapon } from './Characters/Characters_Shaun_SingleWeapon'
 
 import { useSocket } from '../hooks/useSocket'
-import { PlayerConfig } from '../config/GameConfig'
+import { PlayerConfig, CharacterConfig, type CharacterType } from '../config/GameConfig'
 import { Bullet } from './Bullet'
 
 const CharacterModels: Record<string, any> = {
@@ -48,6 +48,8 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
   const selectedVariant = useStore((state) => state.selectedVariant)
   const setSelectedVariant = useStore((state) => state.setSelectedVariant)
   const overridePlayerAnimation = useStore((state) => state.overridePlayerAnimation)
+  const hitReactTrigger = useStore((state) => state.hitReactTrigger)
+  const playerHealth = useStore((state) => state.playerHealth)
   const gamePhase = useStore((state) => state.gamePhase)
   const { rapier, world } = useRapier()
 
@@ -63,6 +65,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
 
   // Attack state
   const attackPending = useRef(false)
+  const lastAttackTime = useRef(0)
 
   // Weapon switch helper — cycles through all 3 slots
   const cycleWeapon = useCallback((direction: number) => {
@@ -121,12 +124,22 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
     }
   }, [gamePhase, cycleWeapon, setSelectedVariant])
 
+  const setPlayerAnimation = useStore((state) => state.setPlayerAnimation)
+  const setLocalPlayerPos = useStore((state) => state.setLocalPlayerPos)
+
   const spawnPos = useMemo(() => {
     return [Math.random() * 10 - 5, 5, Math.random() * 10 - 5] as [number, number, number]
   }, [])
 
-  const setPlayerAnimation = useStore((state) => state.setPlayerAnimation)
-  const setLocalPlayerPos = useStore((state) => state.setLocalPlayerPos)
+  // Hit reaction effect
+  const lastHitReactTrigger = useRef(0)
+  useEffect(() => {
+    if (hitReactTrigger > lastHitReactTrigger.current && playerHealth > 0) {
+      lastHitReactTrigger.current = hitReactTrigger
+      setAnimation('HitReact')
+      setPlayerAnimation('HitReact')
+    }
+  }, [hitReactTrigger, playerHealth, setPlayerAnimation])
 
   const variants = CharacterModels[selectedCharacter] || CharacterModels.Lis
   const modelKey = VARIANT_MODEL[selectedVariant as WeaponVariant] ?? 'Standard'
@@ -139,7 +152,21 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
     if (gamePhase !== 'playing') return
     if (!rb.current || !groupRef.current) return
 
+    const stats = CharacterConfig[selectedCharacter as CharacterType] || CharacterConfig.Lis
+
     const { forward, backward, left, right, sprint, jump, petting, action1, action2, action3, action4, action5, action6, action7, action8, action9, action0 } = getKeys()
+
+    const isDead = playerHealth <= 0
+
+    if (isDead) {
+      if (animation !== 'Death') {
+        setAnimation('Death')
+        setPlayerAnimation('Death')
+      }
+      // Stop movement on death
+      rb.current.setLinvel({ x: 0, y: rb.current.linvel().y, z: 0 }, true)
+      return
+    }
 
     if (overridePlayerAnimation) {
       if (animation !== overridePlayerAnimation) {
@@ -206,8 +233,15 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
     // Left-click attack — use weapon-slot-specific animation
     if (attackPending.current) {
       attackPending.current = false
-      const isAnimal = selectedCharacter === 'Pug' || selectedCharacter === 'GermanShepherd'
       
+      const isAnimal = selectedCharacter === 'Pug' || selectedCharacter === 'GermanShepherd'
+      const isRanged = selectedVariant === 'Standard' && !isAnimal
+      const cooldown = isRanged ? stats.rangedCooldown : stats.attackCooldown
+      
+      const now = state.clock.elapsedTime
+      if (now - lastAttackTime.current < cooldown) return // On cooldown
+      lastAttackTime.current = now
+
       let attackAnim = 'Punch';
       if (isAnimal) attackAnim = 'Attack';
       else if (selectedVariant === 'SingleWeapon') {
@@ -317,7 +351,7 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
       movement.normalize()
 
       const speed = sprint ? PlayerConfig.runSpeed : PlayerConfig.speed
-      movement.multiplyScalar(speed)
+      movement.multiplyScalar(speed * stats.speedMultiplier)
 
       // Character faces movement direction
       const targetRotation = new THREE.Quaternion().setFromAxisAngle(

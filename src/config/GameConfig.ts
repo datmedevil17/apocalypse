@@ -1,10 +1,18 @@
 export type ZombieType = "Zombie_Basic" | "Zombie_Basic_Crawler" | "Zombie_Chubby" | "Zombie_Arm" | "Zombie_Ribcage";
 
+export type CharacterType = "Sam" | "Shaun" | "Lis" | "Matt" | "Pug" | "GermanShepherd";
+
+export interface CharacterStats {
+    maxHealth: number;
+    attackCooldown: number;
+    rangedCooldown: number;
+    speedMultiplier: number;
+}
+
 export interface PlayerStats {
     speed: number;
     runSpeed: number;
     jumpForce: number;
-    maxHealth: number;
     damage: {
         punch: number;
         slash: number;
@@ -19,17 +27,55 @@ export interface PlayerStats {
 export const PlayerConfig: PlayerStats = {
     speed: 4.5,
     runSpeed: 8,
-    jumpForce: 7.0,   // First jump force
-    maxHealth: 100,
+    jumpForce: 2.0,   // First jump force
     damage: {
         punch: 20,
         slash: 35,
         slashRun: 50,
         stab: 35,
         stabRun: 50,
-        ranged: 10,
+        ranged: 15,
     },
     attackRange: 1.5,
+};
+
+export const CharacterConfig: Record<CharacterType, CharacterStats> = {
+    "Lis": {
+        maxHealth: 1500,
+        attackCooldown: 0,
+        rangedCooldown: 0.5,
+        speedMultiplier: 1.0
+    },
+    "Matt": {
+        maxHealth: 1800,
+        attackCooldown: 0,
+        rangedCooldown: 0.5,
+        speedMultiplier: 0.9
+    },
+    "Sam": {
+        maxHealth: 1000,
+        attackCooldown: 0.1,
+        rangedCooldown: 0.1,
+        speedMultiplier: 1.1
+    },
+    "Shaun": {
+        maxHealth: 1000,
+        attackCooldown: 0.1,
+        rangedCooldown: 0.1,
+        speedMultiplier: 1.1
+    },
+    "Pug": {
+        maxHealth: 80,
+        attackCooldown: 0,
+        rangedCooldown: 0,
+        speedMultiplier: 1.3
+    },
+    "GermanShepherd": {
+        maxHealth: 120,
+        attackCooldown: 0,
+        rangedCooldown: 0,
+        speedMultiplier: 1.2
+    }
 };
 
 export interface ZombieStats {

@@ -1,13 +1,15 @@
 import { baseCharacters, useStore } from "../store";
 import { useUIStore } from "../uiStore";
 import { HelpMenu } from "./HelpMenu";
+import { CharacterConfig, type CharacterType } from "../config/GameConfig";
 
 export const UI = () => {
     const {
         selectedCharacter, setSelectedCharacter,
         selectedVariant, setSelectedVariant,
         selectedPet, setSelectedPet,
-        gamePhase, setGamePhase
+        gamePhase, setGamePhase,
+        playerHealth
     } = useStore();
     const toggleHelp = useUIStore((state) => state.toggleHelp);
 
@@ -326,8 +328,33 @@ export const UI = () => {
     }
 
     // ── Playing HUD ──
+    const stats = CharacterConfig[selectedCharacter as CharacterType] || CharacterConfig.Lis;
+    const healthPercent = (playerHealth / stats.maxHealth) * 100;
+
+    const getHealthColor = () => {
+        if (healthPercent > 50) return '#4CAF50';
+        if (healthPercent > 25) return '#FF9800';
+        return '#F44336';
+    };
+
     return (
         <>
+            {/* Low health warning effect */}
+            {healthPercent <= 25 && healthPercent > 0 && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100vw',
+                    height: '100vh',
+                    border: '10px solid rgba(244, 67, 54, 0.2)',
+                    boxSizing: 'border-box',
+                    pointerEvents: 'none',
+                    zIndex: 999,
+                    animation: 'pulse-red 1s infinite alternate'
+                }} />
+            )}
+
             {/* Help button — top right */}
             <div style={{ position: "absolute", top: "20px", right: "20px", zIndex: 100 }}>
                 <button onClick={toggleHelp} style={{
@@ -351,15 +378,65 @@ export const UI = () => {
                 </button>
             </div>
 
-            {/* Weapon HUD — bottom center */}
+            {/* HUD Container — bottom center */}
             <div style={{
                 position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
-                display: "flex", gap: "6px", zIndex: 100, alignItems: "flex-end", pointerEvents: "all",
-                padding: "6px 8px", borderRadius: "12px",
-                background: "rgba(0,0,0,0.3)", backdropFilter: "blur(16px)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                boxShadow: "0 8px 32px rgba(0,0,0,0.4)"
+                display: "flex", gap: "20px", zIndex: 100, alignItems: "flex-end", pointerEvents: "all"
             }}>
+                {/* Health Bar — to the left of weapons */}
+                <div style={{
+                    display: "flex", flexDirection: "column", gap: "8px", 
+                    padding: "16px", borderRadius: "12px",
+                    background: "rgba(0,0,0,0.5)", backdropFilter: "blur(16px)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+                    width: "220px"
+                }}>
+                    <div style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "baseline",
+                        color: "white", fontFamily: "monospace", fontSize: "0.75rem", letterSpacing: "1px"
+                    }}>
+                        <span style={{ fontWeight: 800, color: "#8eff8e" }}>HP</span>
+                        <span style={{ opacity: 0.6 }}>{Math.ceil(playerHealth)} / {stats.maxHealth}</span>
+                    </div>
+
+                    <div style={{
+                        width: '100%',
+                        height: '10px',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '5px',
+                        padding: '1px',
+                        position: 'relative',
+                        overflow: 'hidden'
+                    }}>
+                        <div style={{
+                            width: `${Math.max(0, healthPercent)}%`,
+                            height: '100%',
+                            background: getHealthColor(),
+                            borderRadius: '4px',
+                            transition: 'width 0.3s ease-out, background 0.3s ease',
+                            boxShadow: '0 0 10px ' + getHealthColor() + '44'
+                        }} />
+                    </div>
+                    
+                    <div style={{
+                         color: playerHealth < stats.maxHealth * 0.25 ? "#ff4500" : "rgba(255,255,255,0.3)",
+                         fontSize: "0.6rem", fontWeight: 700, letterSpacing: "1px",
+                         textTransform: "uppercase", marginTop: "2px"
+                    }}>
+                        Condition: {playerHealth <= 0 ? "TERMINATED" : playerHealth < stats.maxHealth * 0.25 ? "CRITICAL" : "STABLE"}
+                    </div>
+                </div>
+
+                {/* Weapon HUD */}
+                <div style={{
+                    display: "flex", gap: "6px",
+                    padding: "6px 8px", borderRadius: "12px",
+                    background: "rgba(0,0,0,0.3)", backdropFilter: "blur(16px)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.4)"
+                }}>
                 {([
                     { label: 'FISTS', variant: 'Unarmed' as const, icon: '👊' },
                     { label: 'MELEE', variant: 'SingleWeapon' as const, icon: '🗡️' },
@@ -409,6 +486,7 @@ export const UI = () => {
                     writingMode: "vertical-rl", letterSpacing: "0.05rem"
                 }}>M</div>
             </div>
+        </div>
 
             {/* Crosshair */}
             <div style={{
@@ -433,6 +511,12 @@ export const UI = () => {
                 }} />
             </div>
 
+            <style>{`
+                @keyframes pulse-red {
+                    from { border-color: rgba(244, 67, 54, 0.1); }
+                    to { border-color: rgba(244, 67, 54, 0.4); }
+                }
+            `}</style>
             <HelpMenu />
         </>
     );
