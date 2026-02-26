@@ -15,7 +15,7 @@ export function Characters_Sam_SingleWeapon({ animation, weaponSlot, onAnimation
     const action = actions[animation]
     if (!action) return
 
-    const isOneShot = !['Idle', 'Run', 'Walk'].includes(animation)
+    const isOneShot = !['Idle', 'Idle_Gun', 'Run', 'Run_Gun', 'Walk', 'Walk_Gun'].includes(animation)
 
     action.reset().fadeIn(0.24).play()
 
