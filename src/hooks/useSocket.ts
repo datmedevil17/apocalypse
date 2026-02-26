@@ -1,12 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
 
-const WS_URL = 'ws://localhost:8080/ws'
-
 export function useSocket() {
     const socket = useRef<WebSocket | null>(null)
     const myId = useStore.getState().myId
-    const setRemotePlayer = useStore((state) => state.setRemotePlayer)
 
     // Use refs to avoid stale closures in broadcast
     const stateRef = useRef({

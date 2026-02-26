@@ -153,7 +153,6 @@ const StreetLight = ({
     return (
         <group position={position} rotation={rotation}>
             <primitive object={clone} />
-            {/* The light bulb is typically high up on a street light model */}
             <pointLight position={[0, 4.5, 1.5]} color="#ffddaa" intensity={1.5} distance={25} decay={2} castShadow />
             <CuboidCollider args={[0.2, 2.5, 0.2]} position={[0, 2.5, 0]} />
         </group>
@@ -1415,6 +1414,32 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
                     <planeGeometry args={[200, 1]} />
                     <meshStandardMaterial color="#aa5500" roughness={0.8} />
                 </mesh>
+
+                {/* ── 3 Glowing Strip Lines on the inside of the walls ── */}
+                {[1.0, 1.7, 2.4].map((y, i) => (
+                    <React.Fragment key={`strip-line-${i}`}>
+                        {/* North (inside face Z = -99.49) */}
+                        <mesh position={[0, y, -99.49]}>
+                            <boxGeometry args={[200, 0.05, 0.05]} />
+                            <meshStandardMaterial color="#ff2200" emissive="#ff2200" emissiveIntensity={2.5} toneMapped={false} />
+                        </mesh>
+                        {/* South (inside face Z = 99.49) */}
+                        <mesh position={[0, y, 99.49]}>
+                            <boxGeometry args={[200, 0.05, 0.05]} />
+                            <meshStandardMaterial color="#ff2200" emissive="#ff2200" emissiveIntensity={2.5} toneMapped={false} />
+                        </mesh>
+                        {/* East (inside face X = 99.49) */}
+                        <mesh position={[99.49, y, 0]}>
+                            <boxGeometry args={[0.05, 0.05, 200]} />
+                            <meshStandardMaterial color="#ff2200" emissive="#ff2200" emissiveIntensity={2.5} toneMapped={false} />
+                        </mesh>
+                        {/* West (inside face X = -99.49) */}
+                        <mesh position={[-99.49, y, 0]}>
+                            <boxGeometry args={[0.05, 0.05, 200]} />
+                            <meshStandardMaterial color="#ff2200" emissive="#ff2200" emissiveIntensity={2.5} toneMapped={false} />
+                        </mesh>
+                    </React.Fragment>
+                ))}
 
                 {/* Perimeter Security Lights (Glowing Emissive Red) */}
                 {Array.from({ length: 21 }).map((_, i) => {
