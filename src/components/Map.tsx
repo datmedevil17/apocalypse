@@ -1,7 +1,7 @@
 import { RigidBody, CuboidCollider } from "@react-three/rapier";
+import React, { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useGLTF, useTexture } from "@react-three/drei";
-import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 
 /* ═══════════════════════════════════════════════════
@@ -52,17 +52,67 @@ const RoadSegment = ({
     path,
     position,
     rotation = [0, 0, 0],
+    grassTexture,
+    grassColor,
 }: {
     path: string;
     position: [number, number, number];
     rotation?: [number, number, number];
+    grassTexture?: THREE.Texture;
+    grassColor?: THREE.Color;
 }) => {
     const { scene } = useGLTF(path);
     const clone = useMemo(() => scene.clone(), [scene]);
     const lifted: [number, number, number] = [position[0], position[1] + 0.02, position[2]];
+    
+    // Add embankments for straight street segments (including cracked variants)
+    const isStraight = path.includes("Straight");
+    
+    // Create a local scaled texture for the small embankments
+    const localGrassTex = useMemo(() => {
+        if (!grassTexture) return undefined;
+        const tex = grassTexture.clone();
+        tex.repeat.set(1.2, 0.3); // Scale appropriately for an 8 x 2 size box
+        tex.needsUpdate = true;
+        return tex;
+    }, [grassTexture]);
+
     return (
         <group position={lifted} rotation={rotation}>
             <primitive object={clone} />
+            <CuboidCollider args={[4, 0.05, 4]} position={[0, -0.04, 0]} />
+            
+            {isStraight && (
+                <>
+                    {/* Left Embankment */}
+                    <group position={[-5, 0.05, 0]} rotation={[0, 0, 0.07]}>
+                        <mesh receiveShadow>
+                            <boxGeometry args={[2.05, 0.1, 8]} />
+                            <meshStandardMaterial 
+                                map={localGrassTex} 
+                                color={grassColor || "#2d6b2d"} 
+                                roughness={0.85} 
+                                envMapIntensity={0.3} 
+                            />
+                        </mesh>
+                        <CuboidCollider args={[1.025, 0.05, 4]} />
+                    </group>
+                    
+                    {/* Right Embankment */}
+                    <group position={[5, 0.05, 0]} rotation={[0, 0, -0.07]}>
+                        <mesh receiveShadow>
+                            <boxGeometry args={[2.05, 0.1, 8]} />
+                             <meshStandardMaterial 
+                                map={localGrassTex} 
+                                color={grassColor || "#2d6b2d"} 
+                                roughness={0.85} 
+                                envMapIntensity={0.3} 
+                            />
+                        </mesh>
+                        <CuboidCollider args={[1.025, 0.05, 4]} />
+                    </group>
+                </>
+            )}
         </group>
     );
 };
@@ -90,6 +140,24 @@ const GLTFProp = ({
     );
 };
 
+const StreetLight = ({
+    position,
+    rotation = [0, 0, 0],
+}: {
+    position: [number, number, number];
+    rotation?: [number, number, number];
+}) => {
+    const { scene } = useGLTF(PROP.streetLights);
+    const clone = useMemo(() => scene.clone(), [scene]);
+
+    return (
+        <group position={position} rotation={rotation}>
+            <primitive object={clone} />
+            <pointLight position={[0, 4.5, 1.5]} color="#ffddaa" intensity={1.5} distance={25} decay={2} castShadow />
+            <CuboidCollider args={[0.2, 2.5, 0.2]} position={[0, 2.5, 0]} />
+        </group>
+    );
+};
 /* ─── Procedural props (no GLTF needed) ─── */
 
 /** Stacked sandbag wall – cheap geometry, great cover */
@@ -475,36 +543,37 @@ const Watchtower = ({
                 <boxGeometry args={[platSize, 0.15, platSize]} />
                 <meshStandardMaterial color={platColor} roughness={0.9} />
             </mesh>
-            {/* Railings — 4 sides */}
+            {/* Railings — 3 sides (leaving the stair side open) */}
             {[
                 { p: [0, legH + railH / 2, -platSize / 2] as [number, number, number], s: [platSize, railH, 0.08] as [number, number, number] },
                 { p: [0, legH + railH / 2, platSize / 2] as [number, number, number], s: [platSize, railH, 0.08] as [number, number, number] },
                 { p: [-platSize / 2, legH + railH / 2, 0] as [number, number, number], s: [0.08, railH, platSize] as [number, number, number] },
-                { p: [platSize / 2, legH + railH / 2, 0] as [number, number, number], s: [0.08, railH, platSize] as [number, number, number] },
+                // The fourth railing on the +X side is removed for stair access
             ].map((r, i) => (
                 <mesh key={`rail-${i}`} castShadow position={r.p}>
                     <boxGeometry args={r.s} />
                     <meshStandardMaterial color={railColor} roughness={0.85} transparent opacity={0.8} />
                 </mesh>
             ))}
-            {/* Ladder */}
-            <group position={[platSize / 2 + 0.15, 0, 0]}>
-                {/* Side rails */}
-                <mesh castShadow position={[-0.01, legH / 2, -0.25]}>
-                    <boxGeometry args={[0.08, legH + 0.5, 0.06]} />
-                    <meshStandardMaterial color={legColor} roughness={0.9} />
-                </mesh>
-                <mesh castShadow position={[-0.01, legH / 2, 0.25]}>
-                    <boxGeometry args={[0.08, legH + 0.5, 0.06]} />
-                    <meshStandardMaterial color={legColor} roughness={0.9} />
-                </mesh>
-                {/* Rungs */}
-                {Array.from({ length: 5 }).map((_, i) => (
-                    <mesh key={`rung-${i}`} position={[-0.01, 0.5 + i * 0.45, 0]}>
-                        <boxGeometry args={[0.06, 0.04, 0.56]} />
-                        <meshStandardMaterial color={railColor} roughness={0.85} />
-                    </mesh>
-                ))}
+            {/* Functional Stairs */}
+            <group position={[platSize / 2, 0, 0]}>
+                {/* Stair steps visuals */}
+                {Array.from({ length: 16 }).map((_, i) => {
+                    const stepY = (i + 1) * (legH / 16);
+                    const stepX = 4.0 - (i * 0.25);
+                    return (
+                        <mesh key={`stair-${i}`} castShadow receiveShadow position={[stepX, stepY - 0.05, 0]}>
+                            <boxGeometry args={[0.4, 0.1, 1]} />
+                            <meshStandardMaterial color={legColor} roughness={0.9} />
+                        </mesh>
+                    );
+                })}
+                {/* Invisible Physics Ramp for smooth walking up */}
+                <CuboidCollider 
+                    args={[2.4, 0.1, 0.5]} 
+                    position={[2.0, legH / 2, 0]} 
+                    rotation={[0, 0, Math.atan2(-legH, 4.0)]} 
+                />
             </group>
             {/* Leg colliders */}
             {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, z], i) => (
@@ -512,6 +581,10 @@ const Watchtower = ({
             ))}
             {/* Platform collider */}
             <CuboidCollider args={[platSize / 2, 0.1, platSize / 2]} position={[0, legH, 0]} />
+            {/* Railing colliders to prevent falling off the 3 closed sides */}
+            <CuboidCollider args={[platSize / 2, railH / 2, 0.04]} position={[0, legH + railH / 2, -platSize / 2]} />
+            <CuboidCollider args={[platSize / 2, railH / 2, 0.04]} position={[0, legH + railH / 2, platSize / 2]} />
+            <CuboidCollider args={[0.04, railH / 2, platSize / 2]} position={[-platSize / 2, legH + railH / 2, 0]} />
             {/* Flickering broken bulb on platform */}
             <FlickerLight position={[0, legH + 0.5, 0]} color="#ffcc66" intensity={3} distance={10}
                 seed={position[0] * 0.1 + position[2] * 0.3} />
@@ -563,17 +636,17 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
 
         // ── 9 INTERSECTIONS ──
         // Center
-        s.push(<RoadSegment key="CC" path={S.fourWay} position={[0, 0, 0]} />);
+        s.push(<RoadSegment key="CC" path={S.fourWay} position={[0, 0, 0]} grassTexture={grassTexture} grassColor={grassColor} />);
         // Inner ring
-        s.push(<RoadSegment key="NC" path={S.fourWay} position={[0, 0, -G]} />);
-        s.push(<RoadSegment key="SC" path={S.fourWay} position={[0, 0, G]} />);
-        s.push(<RoadSegment key="CE" path={S.fourWay} position={[G, 0, 0]} />);
-        s.push(<RoadSegment key="CW" path={S.fourWay} position={[-G, 0, 0]} />);
+        s.push(<RoadSegment key="NC" path={S.fourWay} position={[0, 0, -G]} grassTexture={grassTexture} grassColor={grassColor} />);
+        s.push(<RoadSegment key="SC" path={S.fourWay} position={[0, 0, G]} grassTexture={grassTexture} grassColor={grassColor} />);
+        s.push(<RoadSegment key="CE" path={S.fourWay} position={[G, 0, 0]} grassTexture={grassTexture} grassColor={grassColor} />);
+        s.push(<RoadSegment key="CW" path={S.fourWay} position={[-G, 0, 0]} grassTexture={grassTexture} grassColor={grassColor} />);
         // Corners
-        s.push(<RoadSegment key="NE" path={S.fourWay} position={[G, 0, -G]} />);
-        s.push(<RoadSegment key="NW" path={S.fourWay} position={[-G, 0, -G]} />);
-        s.push(<RoadSegment key="SE" path={S.fourWay} position={[G, 0, G]} />);
-        s.push(<RoadSegment key="SW" path={S.fourWay} position={[-G, 0, G]} />);
+        s.push(<RoadSegment key="NE" path={S.fourWay} position={[G, 0, -G]} grassTexture={grassTexture} grassColor={grassColor} />);
+        s.push(<RoadSegment key="NW" path={S.fourWay} position={[-G, 0, -G]} grassTexture={grassTexture} grassColor={grassColor} />);
+        s.push(<RoadSegment key="SE" path={S.fourWay} position={[G, 0, G]} grassTexture={grassTexture} grassColor={grassColor} />);
+        s.push(<RoadSegment key="SW" path={S.fourWay} position={[-G, 0, G]} grassTexture={grassTexture} grassColor={grassColor} />);
 
         // Helper: fill straight road segments between two points
         const fillRoad = (
@@ -599,6 +672,8 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
                         path={variant}
                         position={[px, 0, pz]}
                         rotation={horiz ? R90 : [0, 0, 0]}
+                        grassTexture={grassTexture} 
+                        grassColor={grassColor}
                     />
                 );
             }
@@ -630,29 +705,29 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
         // North exits from NC
         for (let i = 1; i <= 4; i++) {
             const v = i % 3 === 0 ? S.crack1 : S.straight;
-            s.push(<RoadSegment key={`arm-n-${i}`} path={v} position={[0, 0, -G - i * 8]} />);
+            s.push(<RoadSegment key={`arm-n-${i}`} path={v} position={[0, 0, -G - i * 8]} grassTexture={grassTexture} grassColor={grassColor} />);
         }
         // South exits from SC
         for (let i = 1; i <= 4; i++) {
             const v = i % 4 === 0 ? S.crack2 : S.straight;
-            s.push(<RoadSegment key={`arm-s-${i}`} path={v} position={[0, 0, G + i * 8]} />);
+            s.push(<RoadSegment key={`arm-s-${i}`} path={v} position={[0, 0, G + i * 8]} grassTexture={grassTexture} grassColor={grassColor} />);
         }
         // East exits from FE (now the far-east column)
         for (let i = 1; i <= 2; i++) {
             const v = i % 2 === 0 ? S.crack1 : S.straight;
-            s.push(<RoadSegment key={`arm-e-${i}`} path={v} position={[G2 + i * 8, 0, 0]} rotation={R90} />);
+            s.push(<RoadSegment key={`arm-e-${i}`} path={v} position={[G2 + i * 8, 0, 0]} rotation={R90} grassTexture={grassTexture} grassColor={grassColor} />);
         }
         // West exits from CW
         for (let i = 1; i <= 4; i++) {
             const v = i % 4 === 0 ? S.crack2 : S.straight;
-            s.push(<RoadSegment key={`arm-w-${i}`} path={v} position={[-G - i * 8, 0, 0]} rotation={R90} />);
+            s.push(<RoadSegment key={`arm-w-${i}`} path={v} position={[-G - i * 8, 0, 0]} rotation={R90} grassTexture={grassTexture} grassColor={grassColor} />);
         }
 
         // ── RIGHT-SIDE EXPANSION — extra column at x=80 ──
         // 3 new intersections: FNE (80,-40), FE (80,0), FSE (80,40)
-        s.push(<RoadSegment key="FNE" path={S.fourWay} position={[G2, 0, -G]} />);
-        s.push(<RoadSegment key="FE" path={S.fourWay} position={[G2, 0, 0]} />);
-        s.push(<RoadSegment key="FSE" path={S.fourWay} position={[G2, 0, G]} />);
+        s.push(<RoadSegment key="FNE" path={S.fourWay} position={[G2, 0, -G]} grassTexture={grassTexture} grassColor={grassColor} />);
+        s.push(<RoadSegment key="FE" path={S.fourWay} position={[G2, 0, 0]} grassTexture={grassTexture} grassColor={grassColor} />);
+        s.push(<RoadSegment key="FSE" path={S.fourWay} position={[G2, 0, G]} grassTexture={grassTexture} grassColor={grassColor} />);
 
         // Horizontal roads connecting old east column to far-east
         fillRoad("h-ne-fne", G, -G, G2, -G);
@@ -666,34 +741,34 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
         // North/south exit arms from far-east column
         for (let i = 1; i <= 3; i++) {
             const v = i % 2 === 0 ? S.crack2 : S.straight;
-            s.push(<RoadSegment key={`fne-n-${i}`} path={v} position={[G2, 0, -G - i * 8]} />);
+            s.push(<RoadSegment key={`fne-n-${i}`} path={v} position={[G2, 0, -G - i * 8]} grassTexture={grassTexture} grassColor={grassColor} />);
         }
         for (let i = 1; i <= 3; i++) {
             const v = i % 3 === 0 ? S.crack1 : S.straight;
-            s.push(<RoadSegment key={`fse-s-${i}`} path={v} position={[G2, 0, G + i * 8]} />);
+            s.push(<RoadSegment key={`fse-s-${i}`} path={v} position={[G2, 0, G + i * 8]} grassTexture={grassTexture} grassColor={grassColor} />);
         }
 
         // ── DIAGONAL SIDE STREETS (dead-end alleys — blocked paths) ──
         // NE corner: short east exit (now connects to far-east, no longer dead-end)
         // FNE far-east exit
         for (let i = 1; i <= 2; i++) {
-            s.push(<RoadSegment key={`fne-e-${i}`} path={S.crack2} position={[G2 + i * 8, 0, -G]} rotation={R90} />);
+            s.push(<RoadSegment key={`fne-e-${i}`} path={S.crack2} position={[G2 + i * 8, 0, -G]} rotation={R90} grassTexture={grassTexture} grassColor={grassColor} />);
         }
         // FSE far-east exit
         for (let i = 1; i <= 2; i++) {
-            s.push(<RoadSegment key={`fse-e-${i}`} path={S.crack1} position={[G2 + i * 8, 0, G]} rotation={R90} />);
+            s.push(<RoadSegment key={`fse-e-${i}`} path={S.crack1} position={[G2 + i * 8, 0, G]} rotation={R90} grassTexture={grassTexture} grassColor={grassColor} />);
         }
         // SW corner: short south exit
         for (let i = 1; i <= 2; i++) {
-            s.push(<RoadSegment key={`sw-s-${i}`} path={S.crack1} position={[-G, 0, G + i * 8]} />);
+            s.push(<RoadSegment key={`sw-s-${i}`} path={S.crack1} position={[-G, 0, G + i * 8]} grassTexture={grassTexture} grassColor={grassColor} />);
         }
         // NW corner: short west exit
         for (let i = 1; i <= 2; i++) {
-            s.push(<RoadSegment key={`nw-w-${i}`} path={S.straight} position={[-G - i * 8, 0, -G]} rotation={R90} />);
+            s.push(<RoadSegment key={`nw-w-${i}`} path={S.straight} position={[-G - i * 8, 0, -G]} rotation={R90} grassTexture={grassTexture} grassColor={grassColor} />);
         }
         // SE corner: short south exit
         for (let i = 1; i <= 2; i++) {
-            s.push(<RoadSegment key={`se-s-${i}`} path={S.straight} position={[G, 0, G + i * 8]} />);
+            s.push(<RoadSegment key={`se-s-${i}`} path={S.straight} position={[G, 0, G + i * 8]} grassTexture={grassTexture} grassColor={grassColor} />);
         }
 
         return s;
@@ -921,6 +996,12 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
             rotation={[0, -1.5, 0]} colliderArgs={[1.1, 0.8, 2.4]} />);
         p.push(<GLTFProp key="l-cont" path={P.containerRed} position={[G2 + 10, 0, G - 6]}
             rotation={[0, Math.PI / 2, 0]} colliderArgs={[1.4, 1.3, 3.2]} />);
+        p.push(<StreetLight key="sl-fe-1" position={[G2 - 5, 0, -G - 15]} />);
+        p.push(<StreetLight key="sl-fe-2" position={[G2 + 5, 0, -G - 15]} />);
+        p.push(<StreetLight key="sl-fe-3" position={[G2 + 15, 0, -G - 5]} rotation={R90} />);
+        p.push(<StreetLight key="sl-fe-4" position={[G2 + 15, 0, G + 5]} rotation={R90} />);
+        p.push(<StreetLight key="sl-fe-5" position={[G2 - 5, 0, G + 15]} rotation={R180} />);
+        p.push(<StreetLight key="sl-fe-6" position={[G2 + 5, 0, G + 15]} rotation={R180} />);
         p.push(<GLTFProp key="l-barrel1" path={P.barrel} position={[G2 - 5, 0, G + 8]} colliderArgs={[0.35, 0.6, 0.35]} />);
         p.push(<GLTFProp key="l-barrel2" path={P.barrel} position={[G2 - 4, 0, G + 9]} colliderArgs={[0.35, 0.6, 0.35]} />);
         p.push(<GLTFProp key="l-barrel3" path={P.barrel} position={[G2 - 3.5, 0, G + 7.5]} colliderArgs={[0.35, 0.6, 0.35]} />);
@@ -946,10 +1027,10 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
             [60, 0, -4.5], [60, 0, G + 4.5],
         ];
         lightPositions.forEach(([lx, ly, lz], i) => {
-            p.push(<GLTFProp key={`sl-${i}`} path={P.streetLights}
+            p.push(<StreetLight key={`sl-${i}`}
                 position={[lx, ly, lz]}
                 rotation={[0, i % 2 === 0 ? -Math.PI / 2 : Math.PI / 2, 0]}
-                colliderArgs={[0.05, 1.2, 0.05]} />);
+                 />);
         });
 
         // Traffic lights at key intersections
@@ -1096,7 +1177,8 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
         <>
             {/* ── Ground: large grassy terrain ── */}
             <RigidBody type="fixed" name="ground" restitution={0} friction={1}>
-                <mesh receiveShadow position={[0, -0.5, 0]}>
+                {/* Raised slightly (-0.49) to fix Z-fighting with roads at Y=0 */}
+                <mesh receiveShadow position={[0, -0.49, 0]}>
                     <boxGeometry args={[200, 1, 200]} />
                     <meshStandardMaterial
                         map={grassTexture}
@@ -1105,7 +1187,7 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
                         envMapIntensity={0.3}
                     />
                 </mesh>
-                <CuboidCollider args={[100, 0.5, 100]} position={[0, -0.5, 0]} />
+                <CuboidCollider args={[100, 0.5, 100]} position={[0, -0.49, 0]} />
             </RigidBody>
 
             {/* ── Asphalt strips — ONLY under actual road segments ── */}
@@ -1183,7 +1265,7 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
                 <meshStandardMaterial color="#2a2a2a" roughness={0.95} metalness={0.05} polygonOffset polygonOffsetFactor={-1} />
             </mesh>
 
-            {/* ── Dirt edges along roadsides ── */}
+            {/* Dirt edges along roadsides */}
             {[-40, 0, 40].map((z) => (
                 <mesh key={`dirt-h-${z}`} receiveShadow position={[20, 0.02, z]} rotation={[-Math.PI / 2, 0, 0]}>
                     <planeGeometry args={[180, 16]} />
@@ -1196,6 +1278,8 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
                     <meshStandardMaterial color="#3a3525" roughness={1} transparent opacity={0.3} depthWrite={false} polygonOffset polygonOffsetFactor={-2} />
                 </mesh>
             ))}
+            
+            {/* Local embankments are now handled within RoadSegment */}
 
             {/* ── Lush grass patches on outer ground ── */}
             {[
@@ -1342,6 +1426,61 @@ export const Map = ({ level: _level = 3 }: { level?: number }) => {
                     <planeGeometry args={[200, 1]} />
                     <meshStandardMaterial color="#aa5500" roughness={0.8} />
                 </mesh>
+
+                {/* ── 3 Glowing Strip Lines on the inside of the walls ── */}
+                {[1.0, 1.7, 2.4].map((y, i) => (
+                    <React.Fragment key={`strip-line-${i}`}>
+                        {/* North (inside face Z = -99.49) */}
+                        <mesh position={[0, y, -99.49]}>
+                            <boxGeometry args={[200, 0.05, 0.05]} />
+                            <meshStandardMaterial color="#ff2200" emissive="#ff2200" emissiveIntensity={2.5} toneMapped={false} />
+                        </mesh>
+                        {/* South (inside face Z = 99.49) */}
+                        <mesh position={[0, y, 99.49]}>
+                            <boxGeometry args={[200, 0.05, 0.05]} />
+                            <meshStandardMaterial color="#ff2200" emissive="#ff2200" emissiveIntensity={2.5} toneMapped={false} />
+                        </mesh>
+                        {/* East (inside face X = 99.49) */}
+                        <mesh position={[99.49, y, 0]}>
+                            <boxGeometry args={[0.05, 0.05, 200]} />
+                            <meshStandardMaterial color="#ff2200" emissive="#ff2200" emissiveIntensity={2.5} toneMapped={false} />
+                        </mesh>
+                        {/* West (inside face X = -99.49) */}
+                        <mesh position={[-99.49, y, 0]}>
+                            <boxGeometry args={[0.05, 0.05, 200]} />
+                            <meshStandardMaterial color="#ff2200" emissive="#ff2200" emissiveIntensity={2.5} toneMapped={false} />
+                        </mesh>
+                    </React.Fragment>
+                ))}
+
+                {/* Perimeter Security Lights (Glowing Emissive Red) */}
+                {Array.from({ length: 21 }).map((_, i) => {
+                    const pos = -100 + i * 10;
+                    return (
+                        <React.Fragment key={`border-light-${i}`}>
+                            {/* North wall */}
+                            <mesh position={[pos, 3.2, -100]}>
+                                <boxGeometry args={[0.2, 0.4, 0.2]} />
+                                <meshStandardMaterial color="#ff1100" emissive="#ff1100" emissiveIntensity={3} toneMapped={false} />
+                            </mesh>
+                            {/* South wall */}
+                            <mesh position={[pos, 3.2, 100]}>
+                                <boxGeometry args={[0.2, 0.4, 0.2]} />
+                                <meshStandardMaterial color="#ff1100" emissive="#ff1100" emissiveIntensity={3} toneMapped={false} />
+                            </mesh>
+                            {/* East wall */}
+                            <mesh position={[100, 3.2, pos]}>
+                                <boxGeometry args={[0.2, 0.4, 0.2]} />
+                                <meshStandardMaterial color="#ff1100" emissive="#ff1100" emissiveIntensity={3} toneMapped={false} />
+                            </mesh>
+                            {/* West wall */}
+                            <mesh position={[-100, 3.2, pos]}>
+                                <boxGeometry args={[0.2, 0.4, 0.2]} />
+                                <meshStandardMaterial color="#ff1100" emissive="#ff1100" emissiveIntensity={3} toneMapped={false} />
+                            </mesh>
+                        </React.Fragment>
+                    );
+                })}
             </RigidBody>
 
             {/* ── Border props — containers & barriers along walls ── */}

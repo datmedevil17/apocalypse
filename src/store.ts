@@ -19,7 +19,8 @@ interface GameState {
     selectedCharacter: string
     selectedVariant: 'Unarmed' | 'SingleWeapon' | 'Standard'
     selectedPet: string
-    timeOfDay: number
+    timeOfDay: number // 0 to 24
+    timeSpeed: number // How fast time passes
     playerAnimation: string
     localPlayerPos: [number, number, number]
     localPetPos: [number, number, number]
@@ -32,7 +33,8 @@ interface GameState {
     setSelectedCharacter: (character: string) => void
     setSelectedVariant: (variant: 'Unarmed' | 'SingleWeapon' | 'Standard') => void
     setSelectedPet: (pet: string) => void
-    setTimeOfDay: (time: number) => void
+    setTimeOfDay: (time: number | ((prev: number) => number)) => void
+    setTimeSpeed: (speed: number) => void
     setPlayerAnimation: (animation: string) => void
     setLocalPlayerPos: (pos: [number, number, number]) => void
     setLocalPetState: (pos: [number, number, number], rot: [number, number, number, number], animation: string) => void
@@ -43,7 +45,8 @@ export const useStore = create<GameState>((set) => ({
     selectedCharacter: baseCharacters[0],
     selectedVariant: 'Unarmed',
     selectedPet: petCharacters[0],
-    timeOfDay: 0.5,
+    timeOfDay: 7, // Start exactly at Sunrise (reddish morning)
+    timeSpeed: 0.5, // Reasonably fast cycle for testing
     playerAnimation: 'Idle',
     localPlayerPos: [0, 0, 0],
     localPetPos: [0, 0, 0],
@@ -56,7 +59,8 @@ export const useStore = create<GameState>((set) => ({
     setSelectedCharacter: (character) => set({ selectedCharacter: character }),
     setSelectedVariant: (variant) => set({ selectedVariant: variant }),
     setSelectedPet: (pet) => set({ selectedPet: pet }),
-    setTimeOfDay: (time) => set({ timeOfDay: time }),
+    setTimeOfDay: (time) => set((state) => ({ timeOfDay: typeof time === 'function' ? time(state.timeOfDay) : time })),
+    setTimeSpeed: (speed) => set({ timeSpeed: speed }),
     setPlayerAnimation: (animation) => set({ playerAnimation: animation }),
     setLocalPlayerPos: (pos) => set({ localPlayerPos: pos }),
     setLocalPetState: (pos, rot, animation) => set({
