@@ -1,0 +1,118 @@
+.toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.toast-item {
+    position: relative;
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 12px;
+    background: rgba(15, 15, 15, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    min-width: 320px;
+    max-width: 400px;
+    animation: toast-slide-in 0.3s ease-out;
+    transition: all 0.3s ease;
+}
+
+@keyframes toast-slide-in {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.toast-item.success { border-color: rgba(16, 185, 129, 0.4); }
+.toast-item.error   { border-color: rgba(239, 68, 68, 0.4); }
+.toast-item.loading { border-color: rgba(139, 92, 246, 0.4); }
+.toast-item.info    { border-color: rgba(14, 165, 233, 0.4); }
+
+.toast-icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.toast-icon.success { color: #10b981; }
+.toast-icon.error   { color: #ef4444; }
+.toast-icon.loading { color: #8b5cf6; }
+.toast-icon.info    { color: #0ea5e9; }
+
+.toast-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.toast-title {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #ffffff;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.toast-message {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+    color: #a1a1aa;
+    margin: 4px 0 0 0;
+    line-height: 1.5;
+    word-break: break-all;
+}
+
+.toast-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    color: #8b5cf6;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.toast-link:hover {
+    color: #a78bfa;
+}
+
+.toast-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    color: #52525b;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+}
+
+.toast-close:hover {
+    color: #e4e4e7;
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}

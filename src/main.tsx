@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { WalletContextProvider } from './components/WalletContextProvider'
+import { ToastProvider } from './components/Toast'
 import { SocketProvider } from './hooks/useSocket'
 
 createRoot(document.getElementById('root')!).render(
@@ -11,7 +12,9 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <WalletContextProvider>
         <SocketProvider>
-          <App />
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </SocketProvider>
       </WalletContextProvider>
     </BrowserRouter>

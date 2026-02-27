@@ -4,77 +4,128 @@ import { HelpMenu } from "./HelpMenu";
 import { CharacterConfig, type CharacterType } from "../config/GameConfig";
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useProfile } from "../hooks/useProfile";
 import { useBattle } from "../hooks/useBattle";
 import { useSocket } from "../hooks/useSocket";
 import { useEffect, useState } from 'react';
 
-const CHARACTER_TYPES = ["Sam", "Shaun", "Lis", "Matt", "Pug", "GermanShepherd"] as CharacterType[];
 
 export const UI = () => {
     const { connected } = useWallet();
-    const { initializeProfile, checkProfileExists } = useProfile();
-    const { 
-        createBattleAccount, delegateBattleAccount, startBattle, joinBattle,
-        endBattle, commitBattle
-    } = useBattle();
-    
+    const navigate = useNavigate();
+    const { pathname } = useLocation();
+    const { initializeProfile, checkProfileExists, createSession, sessionToken,
+        delegateGame, startGame, killZombie, endGame, undelegateGame,
+        profileAccount, isDelegated
+    } = useProfile();
     const {
-        selectedCharacter, setSelectedCharacter,
+        createBattleAccount,
+        delegateBattleAccount,
+        joinBattle,
+        killZombieBattle,
+        endBattle,
+        commitBattle,
+        battleAccount,
+        isBattleDelegated,
+        fetchBattleAccount,
+        startBattle,
+    } = useBattle();
+    const { broadcastGameStart } = useSocket();
+
+    const {
+        selectedCharacter,
         selectedVariant, setSelectedVariant,
         gamePhase, setGamePhase,
         playerHealth,
-        gaslessNotifications,
         survivalTimeRemaining, decrementSurvivalTime,
-        maxPlayers, setMaxPlayers, battleRoomId,
-        remotePlayers
+        battleRoomId, setOnZombieKilled,
+        maxPlayers, setMaxPlayers
     } = useStore();
-    const { broadcastGameStart } = useSocket();
     const toggleHelp = useUIStore((state) => state.toggleHelp);
-    
+
     const [isUndelegating, setIsUndelegating] = useState(false);
     const [joinRoomId, setJoinRoomId] = useState("");
 
     // Rollup sequence states
     const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [sessionStatus, setSessionStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [spDelegateStatus, setSpDelegateStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [spStartStatus, setSpStartStatus] = useState<'idle' | 'loading' | 'done'>('idle');
     const [hostCreateStatus, setHostCreateStatus] = useState<'idle' | 'loading' | 'done'>('idle');
-    const [hostDelegateStatus, setHostDelegateStatus] = useState<'idle' | 'loading' | 'done'>('idle');
-    const [hostStartStatus, setHostStartStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+    const [hostingStep, setHostingStep] = useState<'idle' | 'created' | 'delegated' | 'started'>('idle');
     const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'done'>('idle');
 
-    // (killZombie logic handled differently now or safely unused here directly via UI)
-    // useEffect(() => {
-    //     setOnZombieKilled(killZombie);
-    // }, [killZombie, setOnZombieKilled]);
+    // Link zombie kill event to blockchain
+    useEffect(() => {
+        setOnZombieKilled((reward: number) => {
+            if (battleRoomId) {
+                killZombieBattle(battleRoomId, reward);
+            } else {
+                killZombie(reward);
+            }
+        });
+    }, [killZombie, killZombieBattle, battleRoomId, setOnZombieKilled]);
 
     // Auto-check if profile exists when connected
     useEffect(() => {
         if (connected) {
+            if (gamePhase === 'intro') setGamePhase('profile');
             checkProfileExists().then(exists => {
                 if (exists) {
                     setInitStatus('done');
+                    // Skip session check if already delegated? No, session is still needed for gasless.
+                    if (gamePhase === 'profile') setGamePhase('session');
                 }
             });
         } else {
             setInitStatus('idle');
+            setGamePhase('intro');
         }
-    }, [connected, checkProfileExists]);
+    }, [connected, checkProfileExists, gamePhase, setGamePhase]);
+
+    useEffect(() => {
+        if (connected && (gamePhase === 'session' || gamePhase === 'profile') && sessionToken) {
+            setSessionStatus('done');
+            setGamePhase('ready_to_enter');
+        }
+    }, [connected, gamePhase, sessionToken, setGamePhase]);
+
+    // Handle Enter key for transitioning from ready_to_enter to mode_selection
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (gamePhase === 'ready_to_enter' && e.key === 'Enter') {
+                navigate('/choose');
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [gamePhase, setGamePhase]);
+
+    // Refresh delegation status when entering mode selection
+    useEffect(() => {
+        if (connected && gamePhase === 'mode_selection') {
+            checkProfileExists();
+        }
+    }, [connected, gamePhase, checkProfileExists]);
 
     // Handle Game Over
     useEffect(() => {
         if (gamePhase === 'playing' && playerHealth <= 0 && survivalTimeRemaining > 0) {
             console.log("Player died. Triggering game over sequence...");
             setGamePhase('over');
+            endGame();
         }
-    }, [playerHealth, gamePhase, setGamePhase, survivalTimeRemaining]);
+    }, [playerHealth, gamePhase, setGamePhase, survivalTimeRemaining, endGame]);
 
     // Handle Victory
     useEffect(() => {
         if (gamePhase === 'playing' && survivalTimeRemaining <= 0 && playerHealth > 0) {
             console.log("Player survived. Triggering won sequence...");
             setGamePhase('won');
+            endGame();
         }
-    }, [survivalTimeRemaining, gamePhase, playerHealth, setGamePhase]);
+    }, [survivalTimeRemaining, gamePhase, playerHealth, setGamePhase, endGame]);
 
     // Timer Tick
     useEffect(() => {
@@ -86,392 +137,37 @@ export const UI = () => {
         }
     }, [gamePhase, decrementSurvivalTime]);
 
-    if (gamePhase === 'intro') {
-        return (
-            <div style={{
-                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                background: "radial-gradient(ellipse at 50% 30%, rgba(120,30,0,0.35) 0%, rgba(0,0,0,0.97) 70%)",
-                zIndex: 1000, color: "white", textAlign: "center", pointerEvents: "all",
-                overflow: "hidden"
-            }}>
-                {/* Animated light rays */}
-                <div style={{
-                    position: "absolute", top: "-20%", left: "50%", width: "200%", height: "140%",
-                    transform: "translateX(-50%)",
-                    background: "conic-gradient(from 0deg at 50% 0%, transparent 0deg, rgba(255,80,0,0.04) 10deg, transparent 20deg, transparent 40deg, rgba(255,120,0,0.03) 50deg, transparent 60deg, transparent 80deg, rgba(255,60,0,0.05) 90deg, transparent 100deg, transparent 160deg, rgba(255,100,0,0.03) 170deg, transparent 180deg, transparent 340deg, rgba(255,80,0,0.04) 350deg, transparent 360deg)",
-                    animation: "rotateRays 20s linear infinite",
-                    pointerEvents: "none"
-                }} />
+    // Fetch battle account in lobby or multiplayer route
+    useEffect(() => {
+        if ((gamePhase === 'lobby' || pathname === '/multiplayer') && battleRoomId) {
+            fetchBattleAccount(battleRoomId);
+        }
+    }, [gamePhase, pathname, battleRoomId, fetchBattleAccount]);
 
-                {/* Floating particles */}
-                {[...Array(12)].map((_, i) => (
-                    <div key={i} style={{
-                        position: "absolute",
-                        width: `${2 + Math.random() * 3}px`,
-                        height: `${2 + Math.random() * 3}px`,
-                        background: `rgba(255, ${60 + Math.random() * 80}, 0, ${0.3 + Math.random() * 0.4})`,
-                        borderRadius: "50%",
-                        left: `${10 + Math.random() * 80}%`,
-                        bottom: "-5%",
-                        animation: `floatUp ${6 + Math.random() * 8}s ${Math.random() * 5}s infinite linear`,
-                        filter: "blur(1px)",
-                        pointerEvents: "none"
-                    }} />
-                ))}
+    // Multiplayer transition logic: Enter arena as soon as active/joined
+    useEffect(() => {
+        if (pathname === '/multiplayer' && gamePhase !== 'playing' && battleRoomId && battleAccount) {
+            const isActive = battleAccount.active;
+            const isJoinSuccess = joinStatus === 'done';
 
-                {/* Horizontal light accent */}
-                <div style={{
-                    position: "absolute", top: "50%", left: 0, width: "100%", height: "1px",
-                    background: "linear-gradient(90deg, transparent 0%, rgba(255,80,0,0.15) 30%, rgba(255,120,0,0.3) 50%, rgba(255,80,0,0.15) 70%, transparent 100%)",
-                    transform: "translateY(-60px)",
-                    filter: "blur(8px)",
-                    pointerEvents: "none"
-                }} />
+            if (isActive || isJoinSuccess) {
+                console.log("Battle active or joined. Entering arena...");
+                setGamePhase('playing');
+            }
+        }
+    }, [pathname, gamePhase, battleRoomId, battleAccount, joinStatus, setGamePhase]);
 
-                <h1 style={{
-                    fontSize: "clamp(3rem, 8vw, 7rem)",
-                    margin: 0,
-                    fontFamily: "'Creepster', cursive, serif",
-                    color: "#ff4500",
-                    textShadow: "0 0 40px rgba(255,69,0,0.6), 0 0 80px rgba(255,69,0,0.3), 0 4px 8px rgba(0,0,0,0.8)",
-                    letterSpacing: "0.6rem",
-                    transform: "rotate(-1.5deg)",
-                    animation: "titlePulse 3s ease-in-out infinite",
-                    position: "relative", zIndex: 2
-                }}>
-                    APOCALYPSE
-                </h1>
+    // Survival Timer: Tick as soon as playing
+    useEffect(() => {
+        if (gamePhase === 'playing' && battleRoomId) {
+            const timer = setInterval(() => {
+                decrementSurvivalTime();
+            }, 1000);
+            return () => clearInterval(timer);
+        }
+    }, [gamePhase, battleRoomId, decrementSurvivalTime]);
 
-                <div style={{
-                    width: "280px", height: "1px", margin: "24px auto",
-                    background: "linear-gradient(90deg, transparent, rgba(255,69,0,0.5), transparent)",
-                    position: "relative", zIndex: 2
-                }} />
-
-                <p style={{
-                    fontSize: "clamp(0.8rem, 1.5vw, 1.1rem)",
-                    margin: 0, opacity: 0.6,
-                    letterSpacing: "0.4rem",
-                    fontFamily: "'Inter', sans-serif",
-                    fontWeight: 300,
-                    textTransform: "uppercase",
-                    position: "relative", zIndex: 2
-                }}>
-                    The Dead Walk Among Us
-                </p>
-                {!connected ? (
-                    <div style={{ position: "relative", zIndex: 2, marginTop: "70px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                        <p style={{ fontFamily: "monospace", opacity: 0.6, letterSpacing: "2px" }}>CONNECT TO BEGIN</p>
-                        <WalletMultiButton style={{ padding: "18px 48px", background: "rgba(255,69,0,0.2)", border: "1px solid rgba(255,69,0,0.6)", borderRadius: "8px" }} />
-                    </div>
-                ) : (
-                    <button
-                        onClick={async () => {
-                            if (initStatus !== 'done') {
-                                setInitStatus('loading');
-                                try {
-                                    await initializeProfile();
-                                    setInitStatus('done');
-                                } catch (e) {
-                                    console.error("Init failed", e);
-                                    setInitStatus('idle');
-                                    return;
-                                }
-                            }
-                            setGamePhase('lobby');
-                        }}
-                        style={{
-                            marginTop: "70px",
-                            padding: "18px 64px",
-                            fontSize: "1.1rem",
-                            fontFamily: "'Inter', sans-serif",
-                            fontWeight: 700,
-                            background: "transparent",
-                            border: "1px solid rgba(255,69,0,0.6)",
-                            color: "#ff6030",
-                            cursor: "pointer",
-                            transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.3rem",
-                            position: "relative", zIndex: 2,
-                            boxShadow: "0 0 20px rgba(255,69,0,0.15), inset 0 0 20px rgba(255,69,0,0.05)"
-                        }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.background = "rgba(255,69,0,0.12)";
-                            e.currentTarget.style.borderColor = "rgba(255,69,0,0.9)";
-                            e.currentTarget.style.boxShadow = "0 0 40px rgba(255,69,0,0.3), inset 0 0 30px rgba(255,69,0,0.08)";
-                            e.currentTarget.style.transform = "translateY(-2px)";
-                            e.currentTarget.style.color = "#ff8050";
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.background = "transparent";
-                            e.currentTarget.style.borderColor = "rgba(255,69,0,0.6)";
-                            e.currentTarget.style.boxShadow = "0 0 20px rgba(255,69,0,0.15), inset 0 0 20px rgba(255,69,0,0.05)";
-                            e.currentTarget.style.transform = "translateY(0)";
-                            e.currentTarget.style.color = "#ff6030";
-                        }}
-                    >
-                        {initStatus === 'loading' ? "INITIALIZING..." : "ENTER ARENA"}
-                    </button>
-                )}
-
-                <p style={{
-                    position: "absolute", bottom: "30px",
-                    fontSize: "0.65rem", opacity: 0.25,
-                    letterSpacing: "0.15rem", fontFamily: "monospace",
-                    textTransform: "uppercase"
-                }}>
-                    Press any key to continue
-                </p>
-
-                <style>{`
-                    @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Inter:wght@300;400;600;700;800;900&display=swap');
-                    @keyframes titlePulse {
-                        0%, 100% { transform: rotate(-1.5deg) scale(1); filter: brightness(1); }
-                        50% { transform: rotate(-1.5deg) scale(1.03); filter: brightness(1.15); }
-                    }
-                    @keyframes rotateRays {
-                        from { transform: translateX(-50%) rotate(0deg); }
-                        to { transform: translateX(-50%) rotate(360deg); }
-                    }
-                    @keyframes floatUp {
-                        0% { transform: translateY(0) scale(1); opacity: 0; }
-                        10% { opacity: 1; }
-                        90% { opacity: 1; }
-                        100% { transform: translateY(-100vh) scale(0.3); opacity: 0; }
-                    }
-                `}</style>
-            </div>
-        );
-    }
-
-    if (gamePhase === 'lobby') {
-        return (
-            <div style={{
-                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                background: "linear-gradient(160deg, rgba(8,8,18,0.97) 0%, rgba(15,12,25,0.98) 50%, rgba(8,8,18,0.97) 100%)",
-                backdropFilter: "blur(16px)", zIndex: 1000, color: "white", pointerEvents: "all"
-            }}>
-                <div style={{ position: "absolute", top: 20, right: 20, zIndex: 10 }}>
-                    <WalletMultiButton />
-                </div>
-
-                <h2 style={{
-                    fontSize: "clamp(1.8rem, 3.5vw, 2.8rem)", marginBottom: "40px",
-                    fontFamily: "'Inter', sans-serif", fontWeight: 800,
-                    background: "linear-gradient(135deg, #ff4500, #ff8c00)",
-                    WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                    letterSpacing: "0.15rem"
-                }}>
-                    {(hostCreateStatus === 'done' || joinStatus === 'done') ? "STAGING AREA" : "MULTIPLAYER LOBBY"}
-                </h2>
-
-                {(hostCreateStatus === 'done' || joinStatus === 'done') ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "30px", alignItems: "center", width: "100%", maxWidth: "800px" }}>
-                        {/* Status Header */}
-                        <div style={{
-                            display: "flex", justifyContent: "space-between", width: "100%",
-                            background: "rgba(0,0,0,0.6)", padding: "20px 30px", borderRadius: "16px",
-                            border: "1px solid rgba(255,255,255,0.1)", alignItems: "center"
-                        }}>
-                            <div>
-                                <div style={{ fontSize: "0.8rem", opacity: 0.6, letterSpacing: "2px", marginBottom: "4px" }}>ROOM CODE</div>
-                                <div style={{ fontSize: "2.5rem", fontWeight: "bold", letterSpacing: "6px", color: "#00f2fe", textShadow: "0 0 15px rgba(0,242,254,0.3)" }}>
-                                    {battleRoomId}
-                                </div>
-                            </div>
-                            <div style={{ textAlign: "right" }}>
-                                <div style={{ fontSize: "0.8rem", opacity: 0.6, letterSpacing: "2px", marginBottom: "4px" }}>PLAYERS CONNECTED</div>
-                                <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#8eff8e" }}>
-                                    {Object.keys(remotePlayers).length + 1} <span style={{ fontSize: "1rem", opacity: 0.6 }}>/ {maxPlayers}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Character Selection */}
-                        <div style={{ width: "100%", background: "rgba(0,0,0,0.4)", padding: "24px", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.05)" }}>
-                            <h3 style={{ margin: "0 0 20px 0", letterSpacing: "2px", color: "white", textAlign: "center", fontSize: "1.2rem", fontWeight: 600 }}>CHOOSE YOUR AGENT</h3>
-                            <div style={{ display: "flex", gap: "15px", flexWrap: "wrap", justifyContent: "center" }}>
-                                {CHARACTER_TYPES.map(char => (
-                                    <div 
-                                        key={char}
-                                        onClick={() => setSelectedCharacter(char)}
-                                        style={{
-                                            padding: "16px 24px", background: selectedCharacter === char ? "rgba(255,69,0,0.3)" : "rgba(255,255,255,0.05)",
-                                            border: selectedCharacter === char ? "2px solid #ff4500" : "2px solid transparent",
-                                            borderRadius: "12px", cursor: "pointer", transition: "0.2s all",
-                                            color: selectedCharacter === char ? "white" : "rgba(255,255,255,0.6)",
-                                            fontWeight: selectedCharacter === char ? "bold" : "normal",
-                                            boxShadow: selectedCharacter === char ? "0 0 20px rgba(255,69,0,0.2)" : "none",
-                                            transform: selectedCharacter === char ? "scale(1.05)" : "scale(1)"
-                                        }}
-                                    >
-                                        {char.toUpperCase()}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Action Panel */}
-                        <div style={{ display: "flex", gap: "20px", width: "100%", justifyContent: "center" }}>
-                            {hostCreateStatus === 'done' ? (
-                                <>
-                                    <button 
-                                        disabled={hostDelegateStatus !== 'idle'}
-                                        onClick={async () => {
-                                            if (!battleRoomId) return;
-                                            try {
-                                                setHostDelegateStatus('loading');
-                                                await delegateBattleAccount(battleRoomId);
-                                                setHostDelegateStatus('done');
-                                            } catch (e) {
-                                                console.error("Failed to delegate room", e);
-                                                setHostDelegateStatus('idle');
-                                            }
-                                        }}
-                                        style={{ 
-                                            flex: 1, padding: "20px", background: hostDelegateStatus === 'done' ? "rgba(76,175,80,0.2)" : "rgba(255,255,255,0.1)", 
-                                            border: hostDelegateStatus === 'done' ? "1px solid #4CAF50" : "1px solid rgba(255,255,255,0.2)", 
-                                            color: hostDelegateStatus === 'done' ? "#8eff8e" : "white", fontWeight: "bold", borderRadius: "12px", 
-                                            cursor: hostDelegateStatus !== 'idle' ? "not-allowed" : "pointer", transition: "0.3s", letterSpacing: "1px"
-                                        }}
-                                    >
-                                        {hostDelegateStatus === 'done' ? "✓ ROOM DELEGATED" : hostDelegateStatus === 'loading' ? "DELEGATING..." : "1. DELEGATE TO L2"}
-                                    </button>
-
-                                    <button 
-                                        disabled={hostDelegateStatus !== 'done' || hostStartStatus !== 'idle'}
-                                        onClick={async () => {
-                                            if (!battleRoomId) return;
-                                            try {
-                                                setHostStartStatus('loading');
-                                                await startBattle(battleRoomId);
-                                                setHostStartStatus('done');
-                                                broadcastGameStart(battleRoomId);
-                                                setGamePhase('playing');
-                                            } catch (e) {
-                                                console.error("Failed to start room", e);
-                                                setHostStartStatus('idle');
-                                            }
-                                        }}
-                                        style={{ 
-                                            flex: 1, padding: "20px", background: hostStartStatus === 'done' ? "rgba(76,175,80,0.2)" : "rgba(255,69,0,0.3)", 
-                                            border: hostStartStatus === 'done' ? "1px solid #4CAF50" : "1px solid #ff4500", 
-                                            color: hostStartStatus === 'done' ? "#8eff8e" : "white", fontWeight: "bold", borderRadius: "12px", 
-                                            cursor: (hostDelegateStatus !== 'done' || hostStartStatus !== 'idle') ? "not-allowed" : "pointer", transition: "0.3s",
-                                            opacity: hostDelegateStatus !== 'done' ? 0.3 : 1, letterSpacing: "1px"
-                                        }}
-                                    >
-                                        {hostStartStatus === 'done' ? "✓ STARTED" : hostStartStatus === 'loading' ? "STARTING..." : "2. START MATCH"}
-                                    </button>
-                                </>
-                            ) : (
-                                <div style={{ padding: "24px", background: "rgba(0,242,254,0.1)", border: "1px solid rgba(0,242,254,0.3)", borderRadius: "12px", width: "100%", textAlign: "center" }}>
-                                    <div style={{ fontSize: "1.2rem", color: "#00f2fe", fontWeight: "bold", letterSpacing: "2px", animation: "titlePulse 2.5s infinite" }}>
-                                        WAITING FOR HOST TO START MATCH...
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                ) : (
-                    <div style={{ display: "flex", gap: "40px", alignItems: "stretch" }}>
-                        {/* HOST ROOM PANE */}
-                        <div style={{
-                            background: "rgba(0,0,0,0.5)", padding: "30px", borderRadius: "16px",
-                            border: "1px solid rgba(255,69,0,0.3)", width: "320px", display: "flex", flexDirection: "column", gap: "12px"
-                        }}>
-                            <h3 style={{ margin: "0 0 20px 0", letterSpacing: "2px", color: "#ff8c00" }}>HOST ROOM</h3>
-                            <div style={{ marginBottom: "20px" }}>
-                                <label style={{ display: "block", marginBottom: "8px", fontSize: "0.8rem", opacity: 0.7 }}>
-                                    PLAYERS ({maxPlayers})
-                                </label>
-                                <input 
-                                    type="range" min="1" max="4" value={maxPlayers} 
-                                    onChange={e => setMaxPlayers(parseInt(e.target.value))} 
-                                    style={{ width: "100%" }}
-                                />
-                            </div>
-                            
-                            <button 
-                                disabled={hostCreateStatus !== 'idle'}
-                                onClick={async () => {
-                                    try {
-                                        setHostCreateStatus('loading');
-                                        const newRoomId = Math.floor(100000 + Math.random() * 900000); // 6-digit
-                                        await createBattleAccount(newRoomId, maxPlayers);
-                                        setHostCreateStatus('done');
-                                    } catch (e) {
-                                        console.error("Failed to create room", e);
-                                        setHostCreateStatus('idle');
-                                    }
-                                }}
-                                style={{ 
-                                    padding: "16px", background: "rgba(255,69,0,0.2)", 
-                                    border: "1px solid #ff4500", 
-                                    color: "white", fontWeight: "bold", borderRadius: "8px", 
-                                    cursor: hostCreateStatus !== 'idle' ? "not-allowed" : "pointer", transition: "0.3s",
-                                    marginTop: "auto"
-                                }}
-                            >
-                                {hostCreateStatus === 'loading' ? "CREATING..." : "CREATE ROOM"}
-                            </button>
-                        </div>
-
-                        {/* JOIN ROOM PANE */}
-                        <div style={{
-                            background: "rgba(0,0,0,0.5)", padding: "30px", borderRadius: "16px",
-                            border: "1px solid rgba(0,242,254,0.3)", width: "320px", display: "flex", flexDirection: "column"
-                        }}>
-                            <h3 style={{ margin: "0 0 20px 0", letterSpacing: "2px", color: "#00f2fe" }}>JOIN ROOM</h3>
-                            
-                            <div style={{ marginBottom: "20px" }}>
-                                <label style={{ display: "block", marginBottom: "8px", fontSize: "0.8rem", opacity: 0.7 }}>
-                                    ENTER 6-DIGIT CODE
-                                </label>
-                                <input 
-                                    type="text" maxLength={6} value={joinRoomId} 
-                                    onChange={e => setJoinRoomId(e.target.value.replace(/\D/g, ''))} 
-                                    style={{ 
-                                        width: "100%", padding: "12px", background: "rgba(0,0,0,0.3)", color: "white",
-                                        border: "1px solid rgba(0,242,254,0.3)", borderRadius: "8px", fontSize: "1.2rem",
-                                        textAlign: "center", letterSpacing: "8px", fontWeight: "bold"
-                                    }}
-                                />
-                            </div>
-                            
-                            <button 
-                                disabled={joinStatus === 'loading' || joinRoomId.length !== 6}
-                                onClick={async () => {
-                                    try {
-                                        console.log("Attempting to join parsed ID:", parseInt(joinRoomId));
-                                        setJoinStatus('loading');
-                                        await joinBattle(parseInt(joinRoomId));
-                                        console.log("Join Success!");
-                                        setJoinStatus('done');
-                                    } catch (e) {
-                                        console.error("Failed to join room", e);
-                                        setJoinStatus('idle');
-                                    }
-                                }}
-                                style={{ 
-                                    padding: "16px", background: "rgba(0,242,254,0.2)", border: "1px solid #00f2fe", 
-                                    color: "white", fontWeight: "bold", borderRadius: "8px", 
-                                    cursor: (joinStatus === 'loading' || joinRoomId.length !== 6) ? "not-allowed" : "pointer",
-                                    marginTop: "auto", transition: "0.3s", opacity: (joinStatus === 'loading' || joinRoomId.length !== 6) ? 0.5 : 1
-                                }}
-                            >
-                                {joinStatus === 'loading' ? "JOINING..." : "JOIN ROOM"}
-                            </button>
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-    }
-
+    // ── High Priority Overlays (Over / Won) ──
     if (gamePhase === 'over') {
         return (
             <div style={{
@@ -492,6 +188,8 @@ export const UI = () => {
                             if (battleRoomId) {
                                 await endBattle(battleRoomId);
                                 await commitBattle(battleRoomId);
+                            } else {
+                                await undelegateGame();
                             }
                             window.location.reload();
                         } catch (e) {
@@ -500,9 +198,9 @@ export const UI = () => {
                             setIsUndelegating(false);
                         }
                     }}
-                    style={{ 
-                        padding: "16px 32px", background: "linear-gradient(135deg, #f44336, #b71c1c)", color: "white", 
-                        border: "none", cursor: isUndelegating ? "not-allowed" : "pointer", 
+                    style={{
+                        padding: "16px 32px", background: "linear-gradient(135deg, #f44336, #b71c1c)", color: "white",
+                        border: "none", cursor: isUndelegating ? "not-allowed" : "pointer",
                         fontWeight: "bold", fontSize: "1.2rem", borderRadius: "8px", textTransform: "uppercase",
                         boxShadow: "0 4px 15px rgba(255,0,0,0.4)", opacity: isUndelegating ? 0.7 : 1
                     }}
@@ -533,6 +231,8 @@ export const UI = () => {
                             if (battleRoomId) {
                                 await endBattle(battleRoomId);
                                 await commitBattle(battleRoomId);
+                            } else {
+                                await undelegateGame();
                             }
                             window.location.reload();
                         } catch (e) {
@@ -541,15 +241,378 @@ export const UI = () => {
                             setIsUndelegating(false);
                         }
                     }}
-                    style={{ 
-                        padding: "16px 32px", background: "linear-gradient(135deg, #4CAF50, #1B5E20)", color: "white", 
-                        border: "none", cursor: isUndelegating ? "not-allowed" : "pointer", 
+                    style={{
+                        padding: "16px 32px", background: "linear-gradient(135deg, #4CAF50, #1B5E20)", color: "white",
+                        border: "none", cursor: isUndelegating ? "not-allowed" : "pointer",
                         fontWeight: "bold", fontSize: "1.2rem", borderRadius: "8px", textTransform: "uppercase",
                         boxShadow: "0 4px 15px rgba(76,175,80,0.4)", opacity: isUndelegating ? 0.7 : 1
                     }}
                 >
                     {isUndelegating ? "COMMITTING TO BASE LAYER..." : "COMMIT SCORE & RESTART"}
                 </button>
+            </div>
+        );
+    }
+
+    // ── Route Based Overlays (Intro / Choose / Singleplayer / Multiplayer Lobby) ──
+    if (pathname === '/') {
+        if (gamePhase === 'intro') {
+            return (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    background: "rgba(0,0,0,0.9)", zIndex: 1000, color: "white", textAlign: "center"
+                }}>
+                    <h1 style={{ fontSize: "5rem", fontFamily: "'Creepster', cursive", color: "#ff4500" }}>APOCALYPSE</h1>
+                    <div style={{ marginTop: "50px" }}>
+                        <WalletMultiButton />
+                    </div>
+                </div>
+            );
+        }
+        if (gamePhase === 'profile') {
+            return (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    background: "rgba(0,0,0,0.95)", zIndex: 1000, color: "white", textAlign: "center"
+                }}>
+                    <h1 style={{ fontFamily: "'Creepster', cursive", color: "#ff4500", fontSize: "4rem" }}>INITIALIZE IDENTITY</h1>
+                    <button
+                        onClick={async () => {
+                            setInitStatus('loading');
+                            try {
+                                await initializeProfile();
+                                setInitStatus('done');
+                                setGamePhase('session');
+                            } catch (e) {
+                                console.error(e);
+                                setInitStatus('idle');
+                            }
+                        }}
+                        style={{
+                            padding: "18px 64px", background: "rgba(255,69,0,0.1)", border: "1px solid #ff4500",
+                            color: "#ff6030", cursor: "pointer", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.2rem"
+                        }}
+                    >
+                        {initStatus === 'loading' ? "INITIALIZING..." : "CREATE PROFILE"}
+                    </button>
+                </div>
+            );
+        }
+        if (gamePhase === 'session') {
+            return (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    background: "rgba(0,0,0,0.95)", zIndex: 1000, color: "white", textAlign: "center"
+                }}>
+                    <h1 style={{ fontFamily: "'Creepster', cursive", color: "#00f2fe", fontSize: "4rem" }}>AUTHORIZE SESSION</h1>
+                    <button
+                        onClick={async () => {
+                            setSessionStatus('loading');
+                            try {
+                                await createSession();
+                                setSessionStatus('done');
+                                setGamePhase('ready_to_enter');
+                            } catch (e) {
+                                console.error(e);
+                                setSessionStatus('idle');
+                            }
+                        }}
+                        style={{
+                            padding: "18px 64px", background: "rgba(0,242,254,0.1)", border: "1px solid #00f2fe",
+                            color: "#00f2fe", cursor: "pointer", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.2rem"
+                        }}
+                    >
+                        {sessionStatus === 'loading' ? "AUTHORIZING..." : "CREATE SESSION"}
+                    </button>
+                </div>
+            );
+        }
+        if (gamePhase === 'ready_to_enter') {
+            return (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    background: "rgba(0,0,0,0.8)", zIndex: 1000, color: "white", textAlign: "center"
+                }}>
+                    <h1 style={{ fontFamily: "'Creepster', cursive", color: "#ff4500", fontSize: "5rem" }}>READY</h1>
+                    <div
+                        onClick={() => navigate('/choose')}
+                        style={{
+                            marginTop: "20px", padding: "15px 40px", border: "2px solid #ff4500",
+                            borderRadius: "4px", background: "rgba(255,69,0,0.1)", cursor: "pointer"
+                        }}
+                    >
+                        <p style={{ fontSize: "1.1rem", fontWeight: "bold", margin: 0 }}>PRESS [ ENTER ] TO SURVIVE</p>
+                    </div>
+                </div>
+            );
+        }
+    }
+
+    if (pathname === '/choose') {
+        return (
+            <div style={{
+                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                background: "rgba(0,0,0,0.97)", zIndex: 1000, color: "white", textAlign: "center"
+            }}>
+                <h1 style={{ fontFamily: "'Creepster', cursive", color: "#ff4500", fontSize: "5rem", marginBottom: "50px" }}>CHOOSE YOUR FATE</h1>
+                <div style={{ display: "flex", gap: "40px" }}>
+                    <div style={{
+                        width: "350px", padding: "40px", background: "rgba(255,255,255,0.03)", borderRadius: "16px",
+                        border: "1px solid rgba(255,100,0,0.2)", transition: "0.3s all"
+                    }}>
+                        <h2 style={{ color: "#ff8050", letterSpacing: "4px" }}>SINGLE PLAYER</h2>
+                        <p style={{ fontSize: "0.9rem", opacity: 0.6, marginBottom: "30px" }}>Explore the ruins alone and survive the horde.</p>
+                        <button
+                            onClick={() => navigate('/singleplayer')}
+                            style={{
+                                width: "100%", padding: "18px", background: "rgba(255,100,0,0.1)", border: "1px solid #ff4500",
+                                color: "#ff8050", fontWeight: "bold", cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px"
+                            }}
+                        >
+                            {(profileAccount && profileAccount.gameActive) ? "RESUME SESSION" : "ENTER ARENA"}
+                        </button>
+                    </div>
+                    <div style={{
+                        width: "350px", padding: "40px", background: "rgba(255,255,255,0.03)", borderRadius: "16px",
+                        border: "1px solid rgba(0,242,254,0.2)", transition: "0.3s all"
+                    }}>
+                        <h2 style={{ color: "#00f2fe", letterSpacing: "4px" }}>MULTIPLAYER</h2>
+                        <p style={{ fontSize: "0.9rem", opacity: 0.6, marginBottom: "30px" }}>Join other survivors in the wasteland.</p>
+                        <button
+                            onClick={() => navigate('/multiplayer')}
+                            style={{
+                                width: "100%", padding: "18px", background: "rgba(0,242,254,0.1)", border: "1px solid #00f2fe",
+                                color: "#00f2fe", fontWeight: "bold", cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px"
+                            }}
+                        >
+                            {(isBattleDelegated && battleAccount) ? "RESUME BATTLE" : "ENTER LOBBY"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (pathname === '/singleplayer' && gamePhase !== 'playing') {
+        return (
+            <div style={{
+                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                background: "rgba(0,0,0,0.9)", zIndex: 1000, color: "white", textAlign: "center"
+            }}>
+                <h1 style={{ fontFamily: "'Creepster', cursive", color: "#ff4500", fontSize: "4rem", marginBottom: "30px" }}>SINGLE PLAYER</h1>
+                <div style={{
+                    width: "400px", padding: "40px", background: "rgba(255,255,255,0.03)", borderRadius: "16px",
+                    border: "1px solid rgba(255,100,0,0.2)"
+                }}>
+                    {!isDelegated ? (
+                        <>
+                            <p style={{ opacity: 0.7, marginBottom: "30px" }}>Delegate your session to the Ephemeral Rollup to begin survival.</p>
+                            <button
+                                onClick={async () => {
+                                    setSpDelegateStatus('loading');
+                                    try {
+                                        await delegateGame();
+                                        setSpDelegateStatus('done');
+                                    } catch (e) {
+                                        console.error(e);
+                                        setSpDelegateStatus('idle');
+                                    }
+                                }}
+                                style={{
+                                    width: "100%", padding: "18px", background: "rgba(255,100,0,0.1)", border: "1px solid #ff4500",
+                                    color: "#ff8050", fontWeight: "bold", cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px"
+                                }}
+                            >
+                                {spDelegateStatus === 'loading' ? "DELEGATING..." : "DELEGATE TO ER"}
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <p style={{ opacity: 0.7, marginBottom: "30px" }}>Ready for extraction. Enter the wasteland.</p>
+                            <button
+                                onClick={async () => {
+                                    setSpStartStatus('loading');
+                                    try {
+                                        await startGame();
+                                        setSpStartStatus('done');
+                                        setGamePhase('playing');
+                                    } catch (e) {
+                                        console.error(e);
+                                        setSpStartStatus('idle');
+                                    }
+                                }}
+                                style={{
+                                    width: "100%", padding: "18px", background: "rgba(255,100,0,0.2)", border: "1px solid #ff4500",
+                                    color: "white", fontWeight: "bold", cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px"
+                                }}
+                            >
+                                {spStartStatus === 'loading' ? "STARTING..." : "START SURVIVAL"}
+                            </button>
+                        </>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    if (pathname === '/multiplayer' && gamePhase !== 'playing') {
+        const isFull = battleAccount && battleAccount.playerCount >= battleAccount.maxPlayers;
+
+        return (
+            <div style={{
+                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                background: "linear-gradient(160deg, rgba(8,8,18,0.97) 0%, rgba(15,12,25,0.98) 50%, rgba(8,8,18,0.97) 100%)",
+                backdropFilter: "blur(16px)", zIndex: 1000, color: "white", pointerEvents: "all"
+            }}>
+                <div style={{ position: "absolute", top: 20, right: 20, zIndex: 10 }}><WalletMultiButton /></div>
+                <h2 style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.8rem)", marginBottom: "40px", fontFamily: "'Inter', sans-serif", fontWeight: 800, background: "linear-gradient(135deg, #ff4500, #ff8c00)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", letterSpacing: "0.15rem" }}>
+                    {battleRoomId ? "STAGING AREA" : "MULTIPLAYER LOBBY"}
+                </h2>
+
+                {battleRoomId ? (
+                    <div style={{ width: "600px", background: "rgba(255,255,255,0.02)", borderRadius: "24px", border: "1px solid rgba(255,69,0,0.15)", padding: "40px", display: "flex", flexDirection: "column", gap: "24px" }}>
+                        <div style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: "0.9rem", color: "#ff8c00", letterSpacing: "2px", marginBottom: "8px" }}>ROOM ID</div>
+                            <div style={{ fontSize: "2rem", fontWeight: "bold", fontFamily: "monospace" }}>#{battleRoomId}</div>
+                        </div>
+                        <div style={{ padding: "20px", background: "rgba(0,0,0,0.3)", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
+                                <span style={{ opacity: 0.6 }}>SURVIVORS</span>
+                                <span style={{ color: "#00f2fe", fontWeight: "bold" }}>{battleAccount?.playerCount || 0} / {battleAccount?.maxPlayers || 2}</span>
+                            </div>
+                            <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.1)", borderRadius: "3px", overflow: "hidden" }}>
+                                <div style={{ width: `${((battleAccount?.playerCount || 0) / (battleAccount?.maxPlayers || 2)) * 100}%`, height: "100%", background: "#ff4500", transition: "width 0.5s ease" }} />
+                            </div>
+                        </div>
+                        {!isFull ? (
+                            <div style={{ textAlign: "center", padding: "20px" }}>
+                                <p style={{ fontSize: "1.1rem", color: "#ff4500", fontWeight: "bold", margin: "0 0 10px 0" }}>ARENA LIVE</p>
+                                <p style={{ fontSize: "0.9rem", opacity: 0.6, margin: 0 }}>Players in room...</p>
+                            </div>
+                        ) : !battleAccount?.active ? (
+                            <div style={{ textAlign: "center", padding: "20px" }}>
+                                <div style={{ width: "40px", height: "40px", border: "3px solid rgba(0,242,254,0.2)", borderTop: "3px solid #00f2fe", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "0 auto 20px" }} />
+                                <p style={{ fontSize: "1.1rem", opacity: 0.8, margin: 0 }}>Room full! Waiting for host to start the battle...</p>
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: "center", padding: "20px" }}>
+                                <p style={{ fontSize: "1.2rem", color: "#00f2fe", fontWeight: "bold", margin: 0 }}>BATTLE READY - PREPARING ARENA</p>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div style={{ display: "flex", gap: "30px" }}>
+                        <div style={{ width: "320px", background: "rgba(255,255,255,0.02)", padding: "30px", borderRadius: "20px", border: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: "20px" }}>
+                            <h3 style={{ margin: 0, fontSize: "1.1rem", letterSpacing: "1px" }}>HOST BATTLE</h3>
+
+                            {hostingStep === 'idle' && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", opacity: 0.7 }}>
+                                        <span>MAX SURVIVORS</span>
+                                        <span>{maxPlayers}</span>
+                                    </div>
+                                    <input
+                                        type="range" min="2" max="4" step="1"
+                                        value={maxPlayers}
+                                        onChange={(e) => setMaxPlayers(parseInt(e.target.value))}
+                                        style={{ width: "100%", accentColor: "#ff4500", cursor: "pointer" }}
+                                    />
+                                    <button
+                                        onClick={async () => {
+                                            const newRoomId = Math.floor(100000 + Math.random() * 900000);
+                                            setHostCreateStatus('loading');
+                                            try {
+                                                await createBattleAccount(newRoomId, maxPlayers);
+                                                setHostingStep('created');
+                                                setHostCreateStatus('done');
+                                            } catch (e) {
+                                                console.error(e);
+                                                setHostCreateStatus('idle');
+                                            }
+                                        }}
+                                        style={{
+                                            marginTop: "10px", padding: "15px", background: "rgba(255,69,0,0.15)",
+                                            border: "1px solid #ff4500", color: "#ff4500", fontWeight: "bold",
+                                            cursor: "pointer", borderRadius: "8px"
+                                        }}
+                                    >
+                                        {hostCreateStatus === 'loading' ? "INITIALIZING..." : "CREATE ROOM"}
+                                    </button>
+                                </div>
+                            )}
+
+                            {hostingStep === 'created' && (
+                                <button
+                                    onClick={async () => {
+                                        if (!battleRoomId) return;
+                                        setHostCreateStatus('loading');
+                                        try {
+                                            await delegateBattleAccount(battleRoomId);
+                                            setHostingStep('delegated');
+                                            setHostCreateStatus('done');
+                                        } catch (e) {
+                                            console.error(e);
+                                            setHostCreateStatus('idle');
+                                        }
+                                    }}
+                                    style={{
+                                        padding: "15px", background: "rgba(255,69,0,0.25)",
+                                        border: "1px solid #ff4500", color: "white", fontWeight: "bold",
+                                        cursor: "pointer", borderRadius: "8px"
+                                    }}
+                                >
+                                    {hostCreateStatus === 'loading' ? "DELEGATING..." : "DELEGATE ROOM"}
+                                </button>
+                            )}
+
+                            {hostingStep === 'delegated' && (
+                                <button
+                                    onClick={async () => {
+                                        if (!battleRoomId) return;
+                                        setHostCreateStatus('loading');
+                                        try {
+                                            await startBattle(battleRoomId);
+                                            broadcastGameStart(battleRoomId.toString());
+                                            setHostingStep('started');
+                                            setHostCreateStatus('done');
+                                        } catch (e) {
+                                            console.error(e);
+                                            setHostCreateStatus('idle');
+                                        }
+                                    }}
+                                    style={{
+                                        padding: "15px", background: "linear-gradient(135deg, #ff4500, #ff8c00)",
+                                        border: "none", color: "white", fontWeight: "bold",
+                                        cursor: "pointer", borderRadius: "8px", boxShadow: "0 0 15px rgba(255,69,0,0.3)"
+                                    }}
+                                >
+                                    {hostCreateStatus === 'loading' ? "STARTING..." : "START GAME"}
+                                </button>
+                            )}
+
+                            {hostingStep === 'started' && (
+                                <div style={{ textAlign: "center", color: "#ff8c00", fontWeight: "bold", letterSpacing: "1px" }}>
+                                    ARENA LIVE - WAITING...
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ width: "320px", background: "rgba(255,255,255,0.02)", padding: "30px", borderRadius: "20px", border: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: "20px" }}>
+                            <h3 style={{ margin: 0, fontSize: "1.1rem", letterSpacing: "1px" }}>JOIN INSTANCE</h3>
+                            <input type="number" placeholder="ROOM ID" value={joinRoomId} onChange={(e) => setJoinRoomId(e.target.value)} style={{ padding: "12px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "white", outline: "none", fontFamily: "monospace", fontSize: "1.1rem" }} />
+                            <button onClick={async () => { if (!joinRoomId) return; setJoinStatus('loading'); try { await joinBattle(parseInt(joinRoomId)); setJoinStatus('done'); } catch (e) { console.error(e); setJoinStatus('idle'); } }} style={{ padding: "15px", background: "rgba(0,242,254,0.15)", border: "1px solid #00f2fe", color: "#00f2fe", fontWeight: "bold", cursor: "pointer", borderRadius: "8px" }}>
+                                {joinStatus === 'loading' ? "JOINING..." : "JOIN ROOM"}
+                            </button>
+                        </div>
+                    </div>
+                )}
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
         );
     }
@@ -582,7 +645,7 @@ export const UI = () => {
                 zIndex: 50
             }}>
                 <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "3px", marginBottom: "4px", fontFamily: "'Inter', sans-serif" }}>SURVIVAL TIME</span>
-                <span style={{ 
+                <span style={{
                     fontSize: "2.5rem", fontWeight: "bold", fontFamily: "monospace",
                     color: survivalTimeRemaining <= 10 ? "#ff4444" : "#ffffff",
                     textShadow: survivalTimeRemaining <= 10 ? "0 0 15px rgba(255,68,68,0.5)" : "none",
@@ -615,39 +678,28 @@ export const UI = () => {
                 }} />
             )}
 
-            {/* Gasless Notifications Area */}
-            <div style={{
-                position: "fixed", top: "80px", right: "20px",
-                display: "flex", flexDirection: "column", gap: "8px", zIndex: 100,
-                pointerEvents: "none", alignItems: "flex-end"
-            }}>
-                {gaslessNotifications.map(notification => (
-                    <div key={notification.id} style={{
-                        background: "rgba(0,0,0,0.6)", backdropFilter: "blur(12px)",
-                        border: "1px solid rgba(0, 242, 254, 0.4)",
-                        padding: "10px 16px", borderRadius: "8px",
-                        display: "flex", alignItems: "center", gap: "10px",
-                        boxShadow: "0 4px 16px rgba(0,0,0,0.4), 0 0 10px rgba(0,242,254,0.15)",
-                        animation: "slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards",
-                        color: "#b0e0ff", fontFamily: "'Inter', sans-serif"
-                    }}>
-                        <div style={{
-                            width: "8px", height: "8px", borderRadius: "50%",
-                            background: "#00f2fe", boxShadow: "0 0 8px #00f2fe"
-                        }} />
-                        <div>
-                            <div style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.5px" }}>Gasless TX</div>
-                            <div style={{ fontSize: "0.7rem", opacity: 0.8 }}>{notification.message}</div>
-                        </div>
-                    </div>
-                ))}
-            </div>
 
             {/* Top Right Controls (Wallet & Help) */}
-            <div style={{ 
+            <div style={{
                 position: "absolute", top: "20px", right: "20px", zIndex: 100,
-                display: "flex", gap: "12px", alignItems: "center" 
+                display: "flex", gap: "12px", alignItems: "center"
             }}>
+                {sessionToken && (
+                    <div style={{
+                        background: "rgba(0, 242, 254, 0.1)",
+                        border: "1px solid rgba(0, 242, 254, 0.5)",
+                        color: "#00f2fe",
+                        padding: "6px 12px",
+                        borderRadius: "6px",
+                        fontSize: "0.7rem",
+                        fontWeight: "bold",
+                        letterSpacing: "1px",
+                        textTransform: "uppercase",
+                        boxShadow: "0 0 10px rgba(0, 242, 254, 0.2)"
+                    }}>
+                        SESSION ACTIVE
+                    </div>
+                )}
                 <WalletMultiButton style={{
                     background: "rgba(255,255,255,0.04)",
                     backdropFilter: "blur(12px)",
@@ -663,7 +715,7 @@ export const UI = () => {
                     padding: "0 16px",
                     boxShadow: "0 4px 16px rgba(0,0,0,0.3)"
                 }} />
-                
+
                 <button onClick={toggleHelp} style={{
                     width: "36px", height: "36px", borderRadius: "8px",
                     background: "rgba(255,255,255,0.04)",
@@ -692,7 +744,7 @@ export const UI = () => {
             }}>
                 {/* Health Bar — to the left of weapons */}
                 <div style={{
-                    display: "flex", flexDirection: "column", gap: "8px", 
+                    display: "flex", flexDirection: "column", gap: "8px",
                     padding: "16px", borderRadius: "12px",
                     background: "rgba(0,0,0,0.5)", backdropFilter: "blur(16px)",
                     border: "1px solid rgba(255,255,255,0.06)",
@@ -726,11 +778,11 @@ export const UI = () => {
                             boxShadow: '0 0 10px ' + getHealthColor() + '44'
                         }} />
                     </div>
-                    
+
                     <div style={{
-                         color: playerHealth < stats.maxHealth * 0.25 ? "#ff4500" : "rgba(255,255,255,0.3)",
-                         fontSize: "0.6rem", fontWeight: 700, letterSpacing: "1px",
-                         textTransform: "uppercase", marginTop: "2px"
+                        color: playerHealth < stats.maxHealth * 0.25 ? "#ff4500" : "rgba(255,255,255,0.3)",
+                        fontSize: "0.6rem", fontWeight: 700, letterSpacing: "1px",
+                        textTransform: "uppercase", marginTop: "2px"
                     }}>
                         Condition: {playerHealth <= 0 ? "TERMINATED" : playerHealth < stats.maxHealth * 0.25 ? "CRITICAL" : "STABLE"}
                     </div>
@@ -744,56 +796,56 @@ export const UI = () => {
                     border: "1px solid rgba(255,255,255,0.06)",
                     boxShadow: "0 8px 32px rgba(0,0,0,0.4)"
                 }}>
-                {([
-                    { label: 'FISTS', variant: 'Unarmed' as const, icon: '👊' },
-                    { label: 'MELEE', variant: 'SingleWeapon' as const, icon: '🗡️' },
-                    { label: 'GUN', variant: 'Standard' as const, icon: '🔫' },
-                ]).map(({ label, variant, icon }, idx) => (
-                    <div
-                        key={label}
-                        onClick={() => setSelectedVariant(variant)}
-                        style={{
-                            position: "relative",
-                            width: "60px", height: "60px",
-                            background: selectedVariant === variant
-                                ? "linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.06) 100%)"
-                                : "rgba(255,255,255,0.02)",
-                            border: selectedVariant === variant
-                                ? "1px solid rgba(255,255,255,0.3)"
-                                : "1px solid rgba(255,255,255,0.05)",
-                            borderRadius: "8px",
-                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                            cursor: "pointer", transition: "all 0.2s ease",
-                            boxShadow: selectedVariant === variant
-                                ? "0 0 20px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.1)"
-                                : "none",
-                            transform: selectedVariant === variant ? "translateY(-4px)" : "translateY(0)",
-                        }}
-                    >
-                        <span style={{
-                            fontSize: "1.3rem",
-                            filter: selectedVariant === variant ? "none" : "grayscale(0.8) opacity(0.4)"
-                        }}>{icon}</span>
-                        <span style={{
-                            color: selectedVariant === variant ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.3)",
-                            fontSize: "0.5rem", marginTop: "3px",
-                            letterSpacing: "0.08rem", fontFamily: "'Inter', sans-serif", fontWeight: 600
-                        }}>{label}</span>
-                        {/* Hotkey indicator */}
-                        <span style={{
-                            position: "absolute", top: "3px", right: "5px",
-                            fontSize: "0.45rem", color: "rgba(255,255,255,0.2)",
-                            fontFamily: "monospace"
-                        }}>{idx + 1}</span>
-                    </div>
-                ))}
-                <div style={{
-                    color: "rgba(255,255,255,0.15)", fontSize: "0.5rem",
-                    fontFamily: "monospace", marginBottom: "5px", marginLeft: "6px",
-                    writingMode: "vertical-rl", letterSpacing: "0.05rem"
-                }}>M</div>
+                    {([
+                        { label: 'FISTS', variant: 'Unarmed' as const, icon: '👊' },
+                        { label: 'MELEE', variant: 'SingleWeapon' as const, icon: '🗡️' },
+                        { label: 'GUN', variant: 'Standard' as const, icon: '🔫' },
+                    ]).map(({ label, variant, icon }, idx) => (
+                        <div
+                            key={label}
+                            onClick={() => setSelectedVariant(variant)}
+                            style={{
+                                position: "relative",
+                                width: "60px", height: "60px",
+                                background: selectedVariant === variant
+                                    ? "linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.06) 100%)"
+                                    : "rgba(255,255,255,0.02)",
+                                border: selectedVariant === variant
+                                    ? "1px solid rgba(255,255,255,0.3)"
+                                    : "1px solid rgba(255,255,255,0.05)",
+                                borderRadius: "8px",
+                                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                                cursor: "pointer", transition: "all 0.2s ease",
+                                boxShadow: selectedVariant === variant
+                                    ? "0 0 20px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.1)"
+                                    : "none",
+                                transform: selectedVariant === variant ? "translateY(-4px)" : "translateY(0)",
+                            }}
+                        >
+                            <span style={{
+                                fontSize: "1.3rem",
+                                filter: selectedVariant === variant ? "none" : "grayscale(0.8) opacity(0.4)"
+                            }}>{icon}</span>
+                            <span style={{
+                                color: selectedVariant === variant ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.3)",
+                                fontSize: "0.5rem", marginTop: "3px",
+                                letterSpacing: "0.08rem", fontFamily: "'Inter', sans-serif", fontWeight: 600
+                            }}>{label}</span>
+                            {/* Hotkey indicator */}
+                            <span style={{
+                                position: "absolute", top: "3px", right: "5px",
+                                fontSize: "0.45rem", color: "rgba(255,255,255,0.2)",
+                                fontFamily: "monospace"
+                            }}>{idx + 1}</span>
+                        </div>
+                    ))}
+                    <div style={{
+                        color: "rgba(255,255,255,0.15)", fontSize: "0.5rem",
+                        fontFamily: "monospace", marginBottom: "5px", marginLeft: "6px",
+                        writingMode: "vertical-rl", letterSpacing: "0.05rem"
+                    }}>M</div>
+                </div>
             </div>
-        </div>
 
             {/* Crosshair */}
             <div style={{

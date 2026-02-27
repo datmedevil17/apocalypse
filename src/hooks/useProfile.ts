@@ -6,12 +6,16 @@ import { Buffer } from 'buffer';
 import { useGameProgram, PROFILE_SEED } from './useGameProgram';
 import { useSessionKeyManager } from '@magicblock-labs/gum-react-sdk';
 import { useConnection } from '@solana/wallet-adapter-react';
+import { useToastTx } from '../components/Toast';
 
 export function useProfile() {
-    const { program, wallet, erConnection } = useGameProgram();
+    const { program, wallet, erConnection, erProgram } = useGameProgram();
     const { connection } = useConnection();
     const [isInitializing, setIsInitializing] = useState(false);
     const [isDelegating, setIsDelegating] = useState(false);
+    const [profileAccount, setProfileAccount] = useState<any>(null);
+    const [isDelegated, setIsDelegated] = useState(false);
+    const toastTx = useToastTx();
 
     const getProfilePDA = useCallback(() => {
         if (!wallet?.publicKey || !program) return null;
@@ -79,12 +83,42 @@ export function useProfile() {
         const profilePDA = getProfilePDA();
         if (!profilePDA) return false;
         try {
+            // Check base layer first
             const account = await (program.account as any).profile.fetch(profilePDA);
+
+            // Also check delegation status
+            const info = await connection.getAccountInfo(profilePDA);
+            if (info) {
+                const DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
+                setIsDelegated(info.owner.equals(DELEGATION_PROGRAM_ID));
+            }
+
+            setProfileAccount(account);
             return !!account;
         } catch (e) {
             return false;
         }
-    }, [program, wallet?.publicKey, getProfilePDA]);
+    }, [program, wallet?.publicKey, getProfilePDA, connection]);
+
+    // ER Sync Listener
+    useEffect(() => {
+        const profilePDA = getProfilePDA();
+        if (!erProgram || !erConnection || !profilePDA || !isDelegated) return;
+
+        const sub = erConnection.onAccountChange(profilePDA, (info) => {
+            try {
+                const decoded = erProgram.coder.accounts.decode("profile", info.data);
+                console.log("ER Profile Sync:", decoded);
+                setProfileAccount(decoded);
+            } catch (e) {
+                console.error("Failed to decode ER profile sync:", e);
+            }
+        }, "confirmed");
+
+        return () => {
+            erConnection.removeAccountChangeListener(sub);
+        };
+    }, [erProgram, erConnection, getProfilePDA, isDelegated]);
 
     const initializeProfile = useCallback(async () => {
         if (!program || !wallet?.publicKey) throw new Error("Wallet not connected");
@@ -130,6 +164,7 @@ export function useProfile() {
             throw error;
         } finally {
             setIsDelegating(false);
+            await checkProfileExists();
         }
     }, [program, wallet?.publicKey]);
 
@@ -137,12 +172,13 @@ export function useProfile() {
         if (!program || !wallet?.publicKey) return;
         const profilePDA = getProfilePDA();
         if (!profilePDA) return;
-        try {
+
+        return toastTx(async () => {
             const { sessionToken, sessionWallet } = sdkRef.current;
             const useSession = !!sessionToken && !!sessionWallet?.publicKey;
             const signer = useSession ? sessionWallet.publicKey : wallet.publicKey;
             if (!signer) throw new Error("No valid signer");
-            await sendErTx(
+            return await sendErTx(
                 program.methods
                     .startGame()
                     .accounts({
@@ -151,23 +187,24 @@ export function useProfile() {
                         sessionToken: useSession ? sessionToken : null as any,
                     })
             );
-            console.log("ER: Game Started");
-        } catch (error) {
-            console.error("Error starting game:", error);
-            throw error;
-        }
-    }, [program, wallet?.publicKey, getProfilePDA, sendErTx]);
+        }, {
+            pending: "Starting session on ER...",
+            success: "Session started!",
+            isEr: true
+        });
+    }, [program, wallet?.publicKey, getProfilePDA, sendErTx, toastTx]);
 
     const killZombie = useCallback(async (reward: number) => {
         if (!program || !wallet?.publicKey) return;
         const profilePDA = getProfilePDA();
         if (!profilePDA) return;
-        try {
+
+        return toastTx(async () => {
             const { sessionToken, sessionWallet } = sdkRef.current;
             const useSession = !!sessionToken && !!sessionWallet?.publicKey;
             const signer = useSession ? sessionWallet.publicKey : wallet.publicKey;
             if (!signer) throw new Error("No valid signer");
-            await sendErTx(
+            return await sendErTx(
                 program.methods
                     .killZombie(new BN(reward))
                     .accounts({
@@ -176,22 +213,24 @@ export function useProfile() {
                         sessionToken: useSession ? sessionToken : null as any,
                     })
             );
-            console.log(`ER: Killed zombie, reward ${reward}`);
-        } catch (error) {
-            console.error("Error killing zombie:", error);
-        }
-    }, [program, wallet?.publicKey, getProfilePDA, sendErTx]);
+        }, {
+            pending: `Rewarding ${reward} points...`,
+            success: "Zombie kill recorded!",
+            isEr: true
+        });
+    }, [program, wallet?.publicKey, getProfilePDA, sendErTx, toastTx]);
 
     const endGame = useCallback(async () => {
         if (!program || !wallet?.publicKey) return;
         const profilePDA = getProfilePDA();
         if (!profilePDA) return;
-        try {
+
+        return toastTx(async () => {
             const { sessionToken, sessionWallet } = sdkRef.current;
             const useSession = !!sessionToken && !!sessionWallet?.publicKey;
             const signer = useSession ? sessionWallet.publicKey : wallet.publicKey;
             if (!signer) throw new Error("No valid signer");
-            await sendErTx(
+            return await sendErTx(
                 program.methods
                     .endGame()
                     .accounts({
@@ -200,33 +239,45 @@ export function useProfile() {
                         sessionToken: useSession ? sessionToken : null as any,
                     })
             );
-            console.log("ER: Game Ended");
-        } catch (error) {
-            console.error("Error ending game:", error);
-        }
-    }, [program, wallet?.publicKey, getProfilePDA, sendErTx]);
+        }, {
+            pending: "Ending session...",
+            success: "Session ended! Score recorded.",
+            isEr: true
+        });
+    }, [program, wallet?.publicKey, getProfilePDA, sendErTx, toastTx]);
 
     const undelegateGame = useCallback(async () => {
         if (!program || !wallet?.publicKey) return;
         const profilePDA = getProfilePDA();
         if (!profilePDA) return;
+        setIsDelegating(true);
         try {
-            const tx = await sendErTx(
-                program.methods
-                    .undelegateGame()
-                    .accounts({
-                        payer: wallet.publicKey,
-                        profile: profilePDA,
-                    }),
-                true // forceWalletSigning
-            );
+            const tx = await toastTx(async () => {
+                return await sendErTx(
+                    program.methods
+                        .undelegateGame()
+                        .accounts({
+                            payer: wallet.publicKey as any,
+                            profile: profilePDA as any,
+                        }),
+                    true // forceWalletSigning
+                );
+            }, {
+                pending: "Committing score to base layer...",
+                success: "Score committed! Your record is permanent.",
+                isEr: false
+            });
             console.log("Score Committed to Base Layer! Tx:", tx);
+            await checkProfileExists();
             return tx;
         } catch (error) {
             console.error("Error undelegating game:", error);
             throw error;
+        } finally {
+            setIsDelegating(false);
+            await checkProfileExists();
         }
-    }, [program, wallet?.publicKey, getProfilePDA, sendErTx]);
+    }, [program, wallet?.publicKey, getProfilePDA, sendErTx, toastTx, checkProfileExists]);
 
     return {
         initializeProfile,
@@ -242,5 +293,7 @@ export function useProfile() {
         createSession,
         isSessionLoading,
         sessionToken,
+        profileAccount,
+        isDelegated,
     };
 }

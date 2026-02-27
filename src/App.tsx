@@ -6,7 +6,7 @@ import { useMemo, Suspense } from "react";
 import { UI } from "./components/UI";
 import { Minimap } from "./components/Minimap";
 import { LoadingScreen } from "./components/LoadingScreen";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 import { TestZomExperience } from "./components/TestZomExperience";
 import { MultiplayerExperience } from "./components/MultiplayerExperience";
 
@@ -74,9 +74,10 @@ function App() {
             <Route path="/scene3" element={<Experience level={3} />} />
             <Route path="/scene4" element={<Experience level={4} />} />
             <Route path="/scene5" element={<Experience level={5} />} />
-            <Route path="/testzom" element={<TestZomExperience />} />
+            <Route path="/choose" element={<Experience level={3} />} />
+            <Route path="/singleplayer" element={<TestZomExperience />} />
             <Route path="/multiplayer" element={<MultiplayerExperience />} />
-            <Route path="/" element={<Navigate to="/multiplayer" replace />} />
+            <Route path="/" element={<Experience level={3} />} />
           </Routes>
         </Suspense>
         <Preload all />

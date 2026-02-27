@@ -375,8 +375,8 @@ function MultiplayerPanel() {
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${active ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`} />
-                            <span className={`text-sm font-semibold ${active ? "text-emerald-300" : "text-zinc-500"}`}>
-                                {active ? "Battle Active" : "Waiting to Start"}
+                            <span className={`text-sm font-semibold ${active ? "text-emerald-300" : "text-amber-300"}`}>
+                                {active ? "ARENA LIVE" : "READY FOR ACTION"}
                             </span>
                             {isHost && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-900/30 border border-amber-600/30 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
@@ -429,7 +429,7 @@ function MultiplayerPanel() {
             {/* ── Actions — two role columns ── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
-                {/* Host column */}
+                {/* Role Column (Sequential Host Actions) */}
                 <div className="p-4 rounded-2xl border border-amber-600/20 bg-amber-950/10 space-y-4">
                     <div className="flex items-center gap-2 mb-2">
                         <Crown className="w-4 h-4 text-amber-400" />
@@ -437,33 +437,47 @@ function MultiplayerPanel() {
                     </div>
 
                     <div className="space-y-1">
-                        <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Setup (Base Layer)</p>
+                        <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Battle Stage</p>
                         <div className="flex flex-col gap-2">
-                            <ActionButton onClick={handleCreate} loading={isLoading} disabled={!wallet.publicKey} variant="amber">
-                                <Users className="w-3.5 h-3.5" /> Create Room
-                            </ActionButton>
-                            <ActionButton onClick={handleDelegate} loading={isLoading} disabled={!battleAccount} variant="ghost">
-                                <Lock className="w-3.5 h-3.5" /> Delegate to ER
-                            </ActionButton>
-                        </div>
-                    </div>
+                            {/* Step 1: Create */}
+                            {!battleAccount && (
+                                <ActionButton onClick={handleCreate} loading={isLoading} disabled={!wallet.publicKey} variant="amber">
+                                    <Users className="w-3.5 h-3.5" /> CREATE ROOM
+                                </ActionButton>
+                            )}
 
-                    <div className="space-y-1">
-                        <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Battle (ER)</p>
-                        <div className="flex flex-col gap-2">
-                            <ActionButton onClick={handleStart} loading={isLoading} disabled={!battleAccount || active} variant="green">
-                                <Radio className="w-3.5 h-3.5" /> Start Battle
-                            </ActionButton>
-                            <ActionButton onClick={handleEnd} loading={isLoading}
-                                disabled={!active || (!isHost && curP > 1)}
-                                variant="ghost">
-                                <Unlock className="w-3.5 h-3.5" /> End Battle
-                            </ActionButton>
-                            <ActionButton onClick={handleCommit} loading={isLoading}
-                                disabled={!isBattleDelegated || active || (!isHost && curP > 1)}
-                                variant="danger" small>
-                                <Trophy className="w-3 h-3" /> Commit to Base
-                            </ActionButton>
+                            {/* Step 2: Delegate */}
+                            {battleAccount && !isBattleDelegated && (
+                                <ActionButton onClick={handleDelegate} loading={isLoading} variant="amber">
+                                    <Lock className="w-3.5 h-3.5" /> DELEGATE TO ER
+                                </ActionButton>
+                            )}
+
+                            {/* Step 3: Start */}
+                            {battleAccount && isBattleDelegated && !active && (
+                                <ActionButton onClick={handleStart} loading={isLoading} variant="green">
+                                    <Radio className="w-3.5 h-3.5" /> START BATTLE
+                                </ActionButton>
+                            )}
+
+                            {/* Step 4: Active */}
+                            {active && (
+                                <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-center font-bold">
+                                    🔥 ARENA LIVE
+                                </div>
+                            )}
+
+                            {/* Settle/End - Only show if host */}
+                            {isHost && (active || (isBattleDelegated && !active && curP > 0)) && (
+                                <div className="pt-2 mt-2 border-t border-amber-600/20 flex flex-col gap-2">
+                                    <ActionButton onClick={handleEnd} loading={isLoading} disabled={!active} variant="ghost" small>
+                                        <Unlock className="w-3.5 h-3.5" /> End Battle
+                                    </ActionButton>
+                                    <ActionButton onClick={handleCommit} loading={isLoading} disabled={active || !isBattleDelegated} variant="danger" small>
+                                        <Trophy className="w-3 h-3" /> Commit & Settle
+                                    </ActionButton>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

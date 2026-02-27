@@ -141,7 +141,7 @@ function useSocketProvider() {
     }, []);
 
     // Function to broadcast game start
-    const broadcastGameStart = useCallback((roomId: number) => {
+    const broadcastGameStart = useCallback((roomId: string) => {
         if (socket.current?.readyState === WebSocket.OPEN) {
             socket.current.send(JSON.stringify({
                 type: 'start_game',

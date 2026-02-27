@@ -17,9 +17,14 @@ export const ZombieSpawner = ({
     const gamePhase = useStore(state => state.gamePhase);
     const [zombies, setZombies] = useState<{ id: string, pos: [number, number, number] }[]>([]);
     const { broadcastZombies } = useSocket();
-    const activeZombiesRef = useRef<Record<string, {pos: [number,number,number], state: string}>>({});
+    const activeZombiesRef = useRef<Record<string, { pos: [number, number, number], state: string }>>({});
 
     useEffect(() => {
+        if (gamePhase !== 'playing') {
+            setZombies([]);
+            return;
+        }
+
         // Initial spawn of 20 zombies to populate the map quickly
         const initialZombies = Array.from({ length: 20 }).map(() => {
             const mapSize = 100;
@@ -34,16 +39,16 @@ export const ZombieSpawner = ({
             };
         });
         setZombies(initialZombies);
-    }, []);
+    }, [gamePhase]);
 
     // Spawn a new zombie every 2 seconds if under cap and playing
     useEffect(() => {
         if (gamePhase !== 'playing') return;
-        
+
         const interval = setInterval(() => {
             setZombies(current => {
                 if (current.length >= maxConcurrent) return current;
-                
+
                 const mapSize = 100;
                 let x, z;
                 // Don't spawn perfectly at 0,0
@@ -51,7 +56,7 @@ export const ZombieSpawner = ({
                     x = (Math.random() - 0.5) * mapSize;
                     z = (Math.random() - 0.5) * mapSize;
                 } while (Math.abs(x) < 22 && Math.abs(z) < 22);
-                
+
                 const newZombie = {
                     id: Math.random().toString(36).substring(7),
                     pos: [x, 5, z] as [number, number, number]
@@ -93,11 +98,11 @@ export const ZombieSpawner = ({
     return (
         <group>
             {zombies.map((z) => (
-                <Zombie 
-                    key={z.id} 
+                <Zombie
+                    key={z.id}
                     id={z.id}
-                    position={z.pos} 
-                    playerRef={playerRef} 
+                    position={z.pos}
+                    playerRef={playerRef}
                     activeZombiesRef={activeZombiesRef}
                     onDespawn={() => handleDespawn(z.id)}
                 />

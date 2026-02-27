@@ -18,18 +18,18 @@ export const Zombie = ({
     id: string;
     position: [number, number, number];
     playerRef: React.RefObject<THREE.Group>;
-    activeZombiesRef?: React.MutableRefObject<Record<string, {pos: [number,number,number], state: string}>>;
+    activeZombiesRef?: React.MutableRefObject<Record<string, { pos: [number, number, number], state: string }>>;
     onDespawn?: () => void;
 }) => {
     const rbRef = useRef<RapierRigidBody>(null);
     const group = useRef<THREE.Group>(null);
-    
+
     // Randomize zombie type
     const zombieType = useMemo(() => ZOMBIE_TYPES[Math.floor(Math.random() * ZOMBIE_TYPES.length)], []);
     const config = ZombieConfig[zombieType];
-    
+
     const { scene, animations } = useGLTF(config.model);
-    
+
     // We need to clone the scene to allow multiple instances of the same model with different animations
     const clone = useMemo(() => SkeletonUtils.clone(scene), [scene]);
     useGraph(clone);
@@ -40,10 +40,10 @@ export const Zombie = ({
     const [health, setHealth] = useState(config.health);
     const healthRef = useRef(config.health);
     const isDeadRef = useRef(false);
-    
+
     const lastAttackTime = useRef(0);
     const triggerHitReact = useStore(state => state.triggerHitReact);
-    const damagePlayer = useStore(state => (state as any).damagePlayer || (() => {})); // Optional wrapper
+    const damagePlayer = useStore(state => (state as any).damagePlayer || (() => { })); // Optional wrapper
     const overrideZombieAnimation = useStore(state => state.overrideZombieAnimation);
     const onZombieKilled = useStore(state => state.onZombieKilled);
 
@@ -56,10 +56,10 @@ export const Zombie = ({
     // Method to receive damage
     const takeDamage = (amount: number, knockbackDir?: THREE.Vector3) => {
         if (isDeadRef.current) return;
-        
+
         healthRef.current -= amount;
         setHealth(Math.max(0, healthRef.current));
-        
+
         if (healthRef.current <= 0) {
             isDeadRef.current = true;
             setState("dead");
@@ -67,14 +67,13 @@ export const Zombie = ({
                 setDespawned(true);
                 if (onDespawn) onDespawn();
             }, 3000); // the body vanishes after 3 seconds
-            
+
             if (onZombieKilled) {
                 onZombieKilled(10); // Reward 10 points
-                useStore.getState().addGaslessNotification("Zombie Killed (+10 points)");
             }
         } else {
             setHitTimer(0.8); // Longer freeze for hit reaction
-            
+
             // Apply knockback if provided and we have a rigidbody
             if (knockbackDir && rbRef.current) {
                 rbRef.current.applyImpulse({
@@ -101,7 +100,7 @@ export const Zombie = ({
             if (state === "idle") animName = config.animations?.idle || "Idle";
             if (state === "walk") animName = config.animations?.walk || "Walk";
             if (state === "run") animName = config.animations?.run || "Run";
-            if (state === "attack") animName = config.animations?.attack || "Punch"; 
+            if (state === "attack") animName = config.animations?.attack || "Punch";
             if (state === "dead") animName = config.animations?.dead || "Death";
         }
 
@@ -130,7 +129,7 @@ export const Zombie = ({
 
     useFrame((stateObj, delta) => {
         if (despawned) return;
-        
+
         if (hitTimer > 0) {
             setHitTimer(prev => Math.max(0, prev - delta));
         }
@@ -141,12 +140,12 @@ export const Zombie = ({
             rbRef.current.setLinvel({ x: 0, y: rbRef.current.linvel().y, z: 0 }, true);
             return;
         }
-        
+
         if (hitTimer > 0) {
-             // Stop intentional AI movement when hit (but let knockback coast)
-             const v = rbRef.current.linvel();
-             rbRef.current.setLinvel({ x: v.x * 0.9, y: v.y, z: v.z * 0.9 }, true);
-             return;
+            // Stop intentional AI movement when hit (but let knockback coast)
+            const v = rbRef.current.linvel();
+            rbRef.current.setLinvel({ x: v.x * 0.9, y: v.y, z: v.z * 0.9 }, true);
+            return;
         }
 
         const zombiePos = rbRef.current.translation();
@@ -161,7 +160,7 @@ export const Zombie = ({
             if (state !== "idle") setState("idle");
         } else if (distance <= config.attackRange) {
             if (state !== "attack") setState("attack");
-            
+
             // Deal damage on cooldown
             const now = stateObj.clock.elapsedTime;
             if (now - lastAttackTime.current > config.attackCooldown) {
@@ -169,7 +168,7 @@ export const Zombie = ({
                 triggerHitReact();
                 damagePlayer(config.damage);
             }
-            
+
         } else if (distance <= config.aggroRange) {
             if (state !== "run") setState("run");
         } else {
@@ -185,7 +184,7 @@ export const Zombie = ({
 
             // Rotate towards player
             const targetRotation = Math.atan2(direction.x, direction.z);
-            
+
             // Smooth rotation
             const currentRotation = group.current.rotation.y;
             // Simple angular lerp
@@ -197,7 +196,7 @@ export const Zombie = ({
             // Apply velocity
             const currentSpeed = state === "run" ? config.runSpeed : config.speed;
             const velocity = rbRef.current.linvel();
-            
+
             rbRef.current.setLinvel({
                 x: direction.x * currentSpeed,
                 y: velocity.y, // Maintain gravity
@@ -205,9 +204,9 @@ export const Zombie = ({
             }, true);
         } else {
             // Stop moving if idle or attacking
-             const velocity = rbRef.current.linvel();
-             // Slow down horizontally
-             rbRef.current.setLinvel({
+            const velocity = rbRef.current.linvel();
+            // Slow down horizontally
+            rbRef.current.setLinvel({
                 x: velocity.x * 0.9,
                 y: velocity.y,
                 z: velocity.z * 0.9,

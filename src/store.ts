@@ -29,8 +29,8 @@ interface GameState {
     localPetAnimation: string
     remotePlayers: Record<string, PlayerState>
     myId: string
-    gamePhase: 'intro' | 'lobby' | 'playing' | 'over' | 'won'
-    setGamePhase: (phase: 'intro' | 'lobby' | 'playing' | 'over' | 'won') => void
+    gamePhase: 'intro' | 'lobby' | 'playing' | 'over' | 'won' | 'profile' | 'session' | 'mode_selection' | 'ready_to_enter'
+    setGamePhase: (phase: 'intro' | 'lobby' | 'playing' | 'over' | 'won' | 'profile' | 'session' | 'mode_selection' | 'ready_to_enter') => void
     setSelectedCharacter: (character: string) => void
     setSelectedVariant: (variant: 'Unarmed' | 'SingleWeapon' | 'Standard') => void
     setSelectedPet: (pet: string) => void
@@ -46,9 +46,6 @@ interface GameState {
     damagePlayer: (amount: number) => void
     onZombieKilled: ((reward: number) => void) | null
     setOnZombieKilled: (fn: (reward: number) => void) => void
-    gaslessNotifications: { id: string, message: string }[]
-    addGaslessNotification: (message: string) => void
-    removeGaslessNotification: (id: string) => void
     overrideZombieAnimation: string | null
     setOverrideZombieAnimation: (anim: string | null) => void
     overridePlayerAnimation: string | null
@@ -61,6 +58,8 @@ interface GameState {
     setBattleRoomId: (id: number | null) => void
     maxPlayers: number
     setMaxPlayers: (max: number) => void
+    playerCount: number
+    setPlayerCount: (count: number) => void
 
     zombies: Record<string, { pos: [number, number, number], state: string }>
     syncZombies: (zombies: Record<string, { pos: [number, number, number], state: string }>) => void
@@ -113,13 +112,6 @@ export const useStore = create<GameState>((set) => ({
     damagePlayer: (amount) => set((state) => ({ playerHealth: Math.max(0, state.playerHealth - amount) })),
     onZombieKilled: null,
     setOnZombieKilled: (fn) => set({ onZombieKilled: fn }),
-    gaslessNotifications: [],
-    addGaslessNotification: (message) => set((state) => ({
-        gaslessNotifications: [...state.gaslessNotifications, { id: Math.random().toString(36).substr(2, 9), message }]
-    })),
-    removeGaslessNotification: (id) => set((state) => ({
-        gaslessNotifications: state.gaslessNotifications.filter(n => n.id !== id)
-    })),
     overrideZombieAnimation: null,
     setOverrideZombieAnimation: (anim) => set({ overrideZombieAnimation: anim }),
     overridePlayerAnimation: null,
@@ -132,6 +124,8 @@ export const useStore = create<GameState>((set) => ({
     setBattleRoomId: (id) => set({ battleRoomId: id }),
     maxPlayers: 4,
     setMaxPlayers: (max) => set({ maxPlayers: max }),
+    playerCount: 0,
+    setPlayerCount: (count) => set({ playerCount: count }),
 
     zombies: {},
     syncZombies: (zombies) => set({ zombies }),

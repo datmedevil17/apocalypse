@@ -1,8 +1,9 @@
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { Program, AnchorProvider, type Idl } from '@coral-xyz/anchor';
+import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { useMemo } from 'react';
 import { PublicKey, Connection } from '@solana/web3.js';
 import idl from '../../apocalypse-contracts/app/src/idl/counter.json';
+import type { Counter } from '../../apocalypse-contracts/app/src/idl/counter';
 
 export const PROGRAM_ID = new PublicKey((idl as any).address);
 export const PROFILE_SEED = "profile";
@@ -25,7 +26,7 @@ export function useGameProgram() {
         );
 
         // Initialize the base Program
-        return new Program(idl as Idl, provider);
+        return new Program(idl as Counter, provider);
     }, [connection, wallet]);
 
     const erConnection = useMemo(() => new Connection('https://devnet.magicblock.app', {
@@ -45,7 +46,7 @@ export function useGameProgram() {
             AnchorProvider.defaultOptions()
         );
 
-        return new Program(idl as Idl, erProvider);
+        return new Program(idl as Counter, erProvider);
     }, [erConnection, wallet]);
 
     return { program, wallet, connection, erProgram, erConnection };
