@@ -40,15 +40,21 @@ function useSocketProvider() {
         socket.current.onmessage = (event) => {
             try {
                 // VERY VERBOSE LOGGING FOR DEBUGGING
-                console.log(`[SOCKET RAW MESSAGE]`, event.data);
+                // console.log(`[SOCKET RAW MESSAGE]`, event.data);
 
                 const data = JSON.parse(event.data);
 
                 // Only process messages for the room we are currently in
+                // Use Number() to normalize both sides — avoids string vs number mismatch
                 const currentRoomId = useStore.getState().battleRoomId;
-                if (data.roomId !== undefined && currentRoomId !== null && data.roomId !== currentRoomId) {
+                if (
+                    data.roomId !== undefined &&
+                    data.roomId !== null &&
+                    currentRoomId !== null &&
+                    Number(data.roomId) !== Number(currentRoomId)
+                ) {
                     console.log(`[SOCKET IGNORED] Msg for Room ${data.roomId}, I am in ${currentRoomId}`);
-                    return; // Ignore messages from other rooms
+                    return;
                 }
 
                 if (data.type === 'update') {
@@ -69,6 +75,7 @@ function useSocketProvider() {
                     useStore.getState().updateZombieStatus(data.payload.id, data.payload.status);
                 } else if (data.type === 'start_game') {
                     console.log("Received start_game from host!");
+                    useStore.getState().resetSurvivalTime(); // Reset timer for new match
                     useStore.getState().setGamePhase('playing');
                 }
             } catch (e) {
@@ -89,17 +96,32 @@ function useSocketProvider() {
     }, []);
 
     // Function to join a specific battle room
+    // Retries until the socket is open so early calls don't get silently dropped
     const joinRoom = useCallback((roomId: string, playerId: string, payload?: { maxPlayers: number }) => {
-        if (socket.current?.readyState === WebSocket.OPEN) {
-            console.log(`[SOCKET JOIN_ROOM] Sending join for Room: ${roomId}`);
-            socket.current.send(JSON.stringify({
-                type: 'join_room',
-                roomId,
-                playerId,
-                payload
-            }));
-        } else {
-            console.warn(`[SOCKET JOIN_ROOM] Failed to join Room ${roomId}, socket not open`);
+        const doJoin = () => {
+            if (socket.current?.readyState === WebSocket.OPEN) {
+                console.log(`[SOCKET JOIN_ROOM] Sending join for Room: ${roomId}`);
+                socket.current.send(JSON.stringify({
+                    type: 'join_room',
+                    roomId: Number(roomId), // Ensure numeric, matching store type
+                    playerId,
+                    payload
+                }));
+                return true;
+            }
+            return false;
+        };
+
+        if (!doJoin()) {
+            // Socket not yet open — retry every 200ms for up to 5 seconds
+            console.warn(`[SOCKET JOIN_ROOM] Socket not open yet. Retrying...`);
+            let tries = 0;
+            const retry = setInterval(() => {
+                tries++;
+                if (doJoin() || tries > 25) {
+                    clearInterval(retry);
+                }
+            }, 200);
         }
     }, []);
 
@@ -141,11 +163,11 @@ function useSocketProvider() {
     }, []);
 
     // Function to broadcast game start
-    const broadcastGameStart = useCallback((roomId: string) => {
+    const broadcastGameStart = useCallback((roomId: string | number) => {
         if (socket.current?.readyState === WebSocket.OPEN) {
             socket.current.send(JSON.stringify({
                 type: 'start_game',
-                roomId
+                roomId: Number(roomId), // Always send as number to match store type
             }));
         }
     }, []);

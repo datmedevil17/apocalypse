@@ -36,10 +36,10 @@ export function Minimap() {
 
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                 {/* Remote Players */}
-                {Object.values(remotePlayers).map((player) => {
+                {Object.values(remotePlayers).map((player, idx) => {
                     if (!player || !player.position) return null
                     return (
-                        <div key={player.id} style={{
+                        <div key={player.id || idx} style={{
                             position: 'absolute',
                             width: '5px', height: '5px',
                             background: '#4ade80', borderRadius: '50%',

@@ -6,31 +6,13 @@ import { Character } from "./Character";
 import { RemotePlayer } from "./RemotePlayer";
 import { ZombieSpawner } from "./Zombies/ZombieSpawner";
 import { RemoteZombie } from "./Zombies/RemoteZombie";
-import { TestZomMap } from "./TestZomMap";
+import { Map } from "./Map";
 import { useStore } from "../store";
 import { useSocket } from "../hooks/useSocket";
-
-// Basic sunlight for the test area
-const TestAtmosphere = () => {
-    return (
-        <>
-            <color attach="background" args={["#87CEEB"]} />
-            <ambientLight intensity={0.8} color="#ffffff" />
-            <directionalLight
-                position={[-50, 80, -30]}
-                intensity={1.5}
-                color="#ffffff"
-                castShadow
-                shadow-mapSize={[2048, 2048]}
-                shadow-camera-left={-50}
-                shadow-camera-right={50}
-                shadow-camera-top={50}
-                shadow-camera-bottom={-50}
-                shadow-bias={-0.0005} 
-            />
-        </>
-    );
-};
+import { AtmosphereSystem, DreadPulse, AccentLights } from "./Experience";
+import { AtmosphereEffects } from "./AtmosphereEffects";
+import { EffectComposer, Bloom, Vignette, ChromaticAberration, ToneMapping } from "@react-three/postprocessing";
+import { BlendFunction, ToneMappingMode } from "postprocessing";
 
 export const MultiplayerExperience = () => {
     const { remotePlayers, gamePhase, myId, isHost, battleRoomId, zombies, maxPlayers } = useStore();
@@ -42,13 +24,15 @@ export const MultiplayerExperience = () => {
             // Wait for WebSocket connection to establish before joining
             joinRoom(battleRoomId.toString(), myId, isHost ? { maxPlayers: maxPlayers } : undefined);
 
-            if (gamePhase === 'lobby') {
-                // Heartbeat to make sure other players see us in the lobby
-                const interval = setInterval(() => {
-                    broadcast([1000, 1000, 1000], [0, 0, 0, 1]); // Placed far away so no visual ghosting
-                }, 1000);
-                return () => clearInterval(interval);
-            }
+            // Heartbeat to make sure other players see us
+            // In 'lobby' phase, we send dummy positions
+            // In 'playing' phase, the Character component handles broadcasting actual positions
+            const interval = setInterval(() => {
+                if (gamePhase === 'lobby') {
+                    broadcast([1000, 1000, 1000], [0, 0, 0, 1]); 
+                }
+            }, 1000);
+            return () => clearInterval(interval);
         }
     }, [gamePhase, battleRoomId, myId, isHost, joinRoom, maxPlayers, broadcast]);
 
@@ -57,15 +41,21 @@ export const MultiplayerExperience = () => {
 
     return (
         <>
-        <TestAtmosphere />
+        <AtmosphereSystem />
+        <DreadPulse />
+        <AccentLights />
+
+        {/* ── Atmosphere (fire lights, smoke, dust, embers) ── */}
+        <AtmosphereEffects />
+
         <Physics gravity={[0, -20, 0]} interpolate>
-            <TestZomMap />
+            <Map level={3} />
             
             <Character groupRef={groupRef as any} />
             
             {/* Render Remote Players */}
-            {Object.values(remotePlayers).map((player) => (
-                <RemotePlayer key={player.id} state={player} />
+            {Object.values(remotePlayers).map((player, idx) => (
+                <RemotePlayer key={player.id || idx} state={player} />
             ))}
 
             {/* Only the Host runs the Zombie Spawner AI, and ONLY during playing phase */}
@@ -80,13 +70,38 @@ export const MultiplayerExperience = () => {
         </Physics>
         
         <ContactShadows
-            opacity={0.8}
+            opacity={0.95}
             scale={60}
             blur={2.5}
             far={18}
             resolution={512}
-            color="#000000"
+            color="#000008"
         />
+
+        {/* ── Post-processing: horror grading ── */}
+        <EffectComposer>
+            {/* Bloom makes fire glow bleed outward — eerie halos */}
+            <Bloom
+                intensity={0.6}
+                luminanceThreshold={0.3}
+                luminanceSmoothing={0.9}
+                mipmapBlur
+            />
+            {/* Gentle vignette — subtle edge darkening */}
+            <Vignette
+                offset={0.4}
+                darkness={0.5}
+                blendFunction={BlendFunction.NORMAL}
+            />
+            {/* Subtle chromatic aberration — disorienting, sickly */}
+            <ChromaticAberration
+                offset={new THREE.Vector2(0.0008, 0.0008)}
+                radialModulation={true}
+                modulationOffset={0.4}
+                blendFunction={BlendFunction.NORMAL}
+            />
+            <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        </EffectComposer>
         </>
     );
 };

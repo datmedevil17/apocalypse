@@ -1,12 +1,13 @@
 import { useAnimations, useGLTF } from "@react-three/drei";
 import { useFrame, useGraph } from "@react-three/fiber";
 import { RigidBody, CapsuleCollider, RapierRigidBody } from "@react-three/rapier";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
 import { Html } from "@react-three/drei";
 import { useStore } from "../../store";
 import { ZombieConfig, ZOMBIE_TYPES } from "../../config/GameConfig";
+import { useHitEffects } from "../HitEffect";
 
 export const Zombie = ({
     id,
@@ -49,6 +50,37 @@ export const Zombie = ({
 
     const zombieId = id;
 
+    // Hit flash effect: briefly tint all meshes red
+    const hitFlashTimer = useRef(0);
+    const { spawnHit, HitEffects } = useHitEffects();
+    useFrame((_, delta) => {
+        if (hitFlashTimer.current > 0) {
+            hitFlashTimer.current -= delta;
+            const intensity = Math.max(0, hitFlashTimer.current / 0.15);
+            clone.traverse((child: any) => {
+                if (child.isMesh && child.material) {
+                    child.material.emissive = new THREE.Color(1, 0, 0);
+                    child.material.emissiveIntensity = intensity * 2;
+                }
+            });
+        } else {
+            clone.traverse((child: any) => {
+                if (child.isMesh && child.material) {
+                    child.material.emissiveIntensity = 0;
+                }
+            });
+        }
+    });
+
+    // Helper to flash + spawn particles at current zombie position
+    const triggerHitVisuals = useCallback((death = false) => {
+        if (!rbRef.current) return;
+        const t = rbRef.current.translation();
+        const hitPos = new THREE.Vector3(t.x, t.y + 1, t.z);
+        hitFlashTimer.current = 0.15;
+        spawnHit(hitPos, death);
+    }, [spawnHit]);
+
     // Hit reaction state
     const [hitTimer, setHitTimer] = useState(0);
     const [despawned, setDespawned] = useState(false);
@@ -66,16 +98,18 @@ export const Zombie = ({
         if (healthRef.current <= 0) {
             isDeadRef.current = true;
             setState("dead");
+            triggerHitVisuals(true); // Big death burst
             setTimeout(() => {
                 setDespawned(true);
                 if (onDespawn) onDespawn();
-            }, 3000); // the body vanishes after 3 seconds
+            }, 3500); // Extra time for death animation to finish
 
             if (onZombieKilled) {
                 onZombieKilled(10); // Reward 10 points
             }
         } else {
             setHitTimer(0.8); // Longer freeze for hit reaction
+            triggerHitVisuals(false); // Small hit burst
 
             // Apply knockback if provided and we have a rigidbody
             if (knockbackDir && rbRef.current) {
@@ -151,12 +185,28 @@ export const Zombie = ({
             return;
         }
 
+        const remotePlayers = useStore.getState().remotePlayers;
         const zombiePos = rbRef.current.translation();
-        const playerPos = new THREE.Vector3();
-        playerRef.current.getWorldPosition(playerPos);
-
         const currentPos = new THREE.Vector3(zombiePos.x, zombiePos.y, zombiePos.z);
-        const distance = currentPos.distanceTo(playerPos);
+        
+        // Find closest player among local and remote
+        let closestPlayerPos = new THREE.Vector3();
+        playerRef.current.getWorldPosition(closestPlayerPos);
+        let minDistance = currentPos.distanceTo(closestPlayerPos);
+
+        Object.values(remotePlayers).forEach((rp) => {
+            // Only target living players
+            if (rp.animation === "Death") return;
+            
+            const rpPos = new THREE.Vector3(...rp.position);
+            const dist = currentPos.distanceTo(rpPos);
+            if (dist < minDistance) {
+                minDistance = dist;
+                closestPlayerPos.copy(rpPos);
+            }
+        });
+
+        const distance = minDistance;
 
         // State machine
         if (distance > config.aggroRange * 2) {
@@ -169,7 +219,13 @@ export const Zombie = ({
             if (now - lastAttackTime.current > config.attackCooldown) {
                 lastAttackTime.current = now;
                 triggerHitReact();
-                damagePlayer(config.damage);
+                
+                // Only damage if the closest player IS the local player
+                const localPos = new THREE.Vector3();
+                playerRef.current.getWorldPosition(localPos);
+                if (localPos.distanceTo(currentPos) <= config.attackRange + 0.5) {
+                    damagePlayer(config.damage);
+                }
             }
 
         } else if (distance <= config.aggroRange) {
@@ -187,8 +243,8 @@ export const Zombie = ({
                 const wanderTime = stateObj.clock.elapsedTime * 0.5 + wanderOffset;
                 targetDirection.set(Math.sin(wanderTime), 0, Math.cos(wanderTime)).normalize();
             } else {
-                // Direction to player
-                targetDirection.subVectors(playerPos, currentPos);
+                // Direction to closest player
+                targetDirection.subVectors(closestPlayerPos, currentPos);
                 targetDirection.y = 0; // Don't look up/down
                 targetDirection.normalize();
             }
@@ -256,6 +312,9 @@ export const Zombie = ({
                     <primitive object={clone} />
                 </group>
             </RigidBody>
+
+            {/* Particle hit effects */}
+            <HitEffects />
 
             {/* Health Bar UI - rendered above the zombie but outside RigidBody to stay stable */}
             {health > 0 && health < config.health && (

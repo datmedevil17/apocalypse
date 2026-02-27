@@ -14,7 +14,8 @@ export function useGameProgram() {
     const wallet = useWallet();
 
     const program = useMemo(() => {
-        if (!wallet.publicKey || !wallet.signTransaction || !wallet.signAllTransactions) {
+        // Only require publicKey + signTransaction — signAllTransactions is optional
+        if (!wallet.publicKey || !wallet.signTransaction) {
             return null;
         }
 
@@ -35,7 +36,8 @@ export function useGameProgram() {
     }), []);
 
     const erProgram = useMemo(() => {
-        if (!wallet.publicKey || !wallet.signTransaction || !wallet.signAllTransactions) {
+        // Only require publicKey + signTransaction — signAllTransactions is optional
+        if (!wallet.publicKey || !wallet.signTransaction) {
             return null;
         }
 

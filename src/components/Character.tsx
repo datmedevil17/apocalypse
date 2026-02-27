@@ -67,6 +67,10 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
   const attackPending = useRef(false)
   const lastAttackTime = useRef(0)
 
+  // Camera shake state
+  const shakeTimer = useRef(0)
+  const shakeIntensity = 0.25
+
   // Weapon switch helper — cycles through all 3 slots
   const cycleWeapon = useCallback((direction: number) => {
     const currentIdx = WEAPON_VARIANTS.indexOf(selectedVariant as WeaponVariant)
@@ -131,13 +135,14 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
     return [Math.random() * 10 - 5, 5, Math.random() * 10 - 5] as [number, number, number]
   }, [])
 
-  // Hit reaction effect
+  // Hit reaction effect + camera shake
   const lastHitReactTrigger = useRef(0)
   useEffect(() => {
     if (hitReactTrigger > lastHitReactTrigger.current && playerHealth > 0) {
       lastHitReactTrigger.current = hitReactTrigger
       setAnimation('HitReact')
       setPlayerAnimation('HitReact')
+      shakeTimer.current = 0.4 // Trigger camera shake for 0.4s
     }
   }, [hitReactTrigger, playerHealth, setPlayerAnimation])
 
@@ -148,17 +153,17 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
   const [, getKeys] = useKeyboardControls()
   const { broadcast } = useSocket()
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     if (gamePhase !== 'playing') return
     if (!rb.current || !groupRef.current) return
 
     const stats = CharacterConfig[selectedCharacter as CharacterType] || CharacterConfig.Lis
+    const { forward, backward, left, right, jump, attack, action1, action2, action3, action4, action5, action6, action7, action8, action9, action0 } = getKeys()
+    const sprint = false // Default if not in keys
+    const petting = false // Default if not in keys
 
-    const { forward, backward, left, right, sprint, jump, petting, action1, action2, action3, action4, action5, action6, action7, action8, action9, action0 } = getKeys()
-
-    const isDead = playerHealth <= 0
-
-    if (isDead) {
+    // Handle Death state
+    if (playerHealth <= 0) {
       if (animation !== 'Death') {
         setAnimation('Death')
         setPlayerAnimation('Death')
@@ -421,6 +426,16 @@ export function Character({ groupRef }: { groupRef: React.MutableRefObject<THREE
     if (targetCameraPosition.y < 0.5) targetCameraPosition.y = 0.5
 
     state.camera.position.lerp(targetCameraPosition, 0.1)
+
+    // Camera shake on player hit
+    if (shakeTimer.current > 0) {
+      shakeTimer.current -= delta
+      const decay = shakeTimer.current / 0.4
+      state.camera.position.x += (Math.random() - 0.5) * shakeIntensity * decay
+      state.camera.position.y += (Math.random() - 0.5) * shakeIntensity * decay
+      state.camera.position.z += (Math.random() - 0.5) * shakeIntensity * decay
+    }
+
     state.camera.lookAt(characterPosition.x, characterPosition.y + 1, characterPosition.z)
   })
 

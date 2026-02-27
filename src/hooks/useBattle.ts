@@ -77,7 +77,7 @@ export const useBattle = () => {
         const sub = erConnection.onAccountChange(pda, (info) => {
             try {
                 const decoded = erProgram.coder.accounts.decode("battle", info.data);
-                console.log("ER Battle Sync:", decoded);
+                // console.log("ER Battle Sync:", decoded);
                 setBattleAccount(decoded);
                 setPlayerCount(decoded.playerCount);
                 setMaxPlayers(decoded.maxPlayers);
@@ -104,6 +104,11 @@ export const useBattle = () => {
         const { sessionToken, sessionWallet } = sdkRef.current;
         const useSession = !forceWalletSigning && !!sessionToken && !!sessionWallet?.publicKey && !!sessionWallet?.signTransaction;
 
+        // ER transactions that aren't forced must use session — never prompt wallet
+        if (!useSession && !forceWalletSigning) {
+            throw new Error("Session required for ER transaction. Please create a session first.");
+        }
+
         tx.feePayer = useSession ? (sessionWallet.publicKey ?? undefined) : wallet.publicKey;
         tx.recentBlockhash = (await erConnection.getLatestBlockhash()).blockhash;
 
@@ -117,6 +122,7 @@ export const useBattle = () => {
         await erConnection.confirmTransaction(sig, "confirmed");
         return sig;
     }, [erConnection, wallet]);
+
 
     const createBattleAccount = useCallback(async (roomId: number, maxPlayers: number) => {
         if (!program || !wallet?.publicKey) throw new Error("Program or wallet not initialized");

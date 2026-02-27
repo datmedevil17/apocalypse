@@ -40,6 +40,7 @@ interface GameState {
     setLocalPlayerPos: (pos: [number, number, number]) => void
     setLocalPetState: (pos: [number, number, number], rot: [number, number, number, number], animation: string) => void
     setRemotePlayer: (id: string, state: PlayerState | null) => void
+    clearRemotePlayers: () => void
     hitReactTrigger: number
     triggerHitReact: () => void
     playerHealth: number
@@ -52,6 +53,7 @@ interface GameState {
     setOverridePlayerAnimation: (anim: string | null) => void
     survivalTimeRemaining: number
     decrementSurvivalTime: () => void
+    resetSurvivalTime: () => void
     isHost: boolean
     setIsHost: (isHost: boolean) => void
     battleRoomId: number | null
@@ -106,6 +108,7 @@ export const useStore = create<GameState>((set) => ({
         }
         return { remotePlayers: newPlayers }
     }),
+    clearRemotePlayers: () => set({ remotePlayers: {} }),
     hitReactTrigger: 0,
     triggerHitReact: () => set((state) => ({ hitReactTrigger: state.hitReactTrigger + 1 })),
     playerHealth: CharacterConfig[baseCharacters[0] as CharacterType]?.maxHealth || 100,
@@ -118,6 +121,7 @@ export const useStore = create<GameState>((set) => ({
     setOverridePlayerAnimation: (anim) => set({ overridePlayerAnimation: anim }),
     survivalTimeRemaining: 60, // 60 seconds to survive
     decrementSurvivalTime: () => set((state) => ({ survivalTimeRemaining: Math.max(0, state.survivalTimeRemaining - 1) })),
+    resetSurvivalTime: () => set({ survivalTimeRemaining: 60 }),
     isHost: false,
     setIsHost: (isHost) => set({ isHost }),
     battleRoomId: null,

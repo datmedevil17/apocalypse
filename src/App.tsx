@@ -9,6 +9,7 @@ import { LoadingScreen } from "./components/LoadingScreen";
 import { Routes, Route } from "react-router-dom";
 import { TestZomExperience } from "./components/TestZomExperience";
 import { MultiplayerExperience } from "./components/MultiplayerExperience";
+import { InventoryExperience } from "./components/InventoryExperience";
 
 const Controls = {
   forward: "forward",
@@ -77,6 +78,7 @@ function App() {
             <Route path="/choose" element={<Experience level={3} />} />
             <Route path="/singleplayer" element={<TestZomExperience />} />
             <Route path="/multiplayer" element={<MultiplayerExperience />} />
+            <Route path="/inventory" element={<InventoryExperience />} />
             <Route path="/" element={<Experience level={3} />} />
           </Routes>
         </Suspense>
