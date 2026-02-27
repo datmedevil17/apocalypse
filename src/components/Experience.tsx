@@ -14,7 +14,7 @@ import { useStore } from "../store";
 import { EnvironmentConfig } from "../config/EnvironmentConfig";
 
 /* ── Pulsing red ambient for dread (Always On) ── */
-const DreadPulse = () => {
+export const DreadPulse = () => {
     const ref = useRef<THREE.PointLight>(null!);
     useFrame(({ clock }) => {
         if (!ref.current) return;
@@ -36,7 +36,7 @@ const DreadPulse = () => {
 };
 
 /* ── Accent lights at corners (Always On) ── */
-const AccentLights = () => {
+export const AccentLights = () => {
     return (
         <group>
              <pointLight position={[-40, 5, -40]} color="#338855" intensity={1.5} distance={35} decay={2} />
@@ -47,7 +47,7 @@ const AccentLights = () => {
     );
 };
 
-const AtmosphereSystem = () => {
+export const AtmosphereSystem = () => {
     const bgRef = useRef<THREE.Color>(null!);
     const fogRef = useRef<THREE.Fog>(null!);
     const ambientRef = useRef<THREE.AmbientLight>(null!);

@@ -52,6 +52,9 @@ export const Zombie = ({
     // Hit reaction state
     const [hitTimer, setHitTimer] = useState(0);
     const [despawned, setDespawned] = useState(false);
+    
+    // Offset for wander logic
+    const wanderOffset = useMemo(() => Math.random() * 100, []);
 
     // Method to receive damage
     const takeDamage = (amount: number, knockbackDir?: THREE.Vector3) => {
@@ -157,7 +160,7 @@ export const Zombie = ({
 
         // State machine
         if (distance > config.aggroRange * 2) {
-            if (state !== "idle") setState("idle");
+            if (state !== "walk") setState("walk"); // Wander when far away
         } else if (distance <= config.attackRange) {
             if (state !== "attack") setState("attack");
 
@@ -177,13 +180,21 @@ export const Zombie = ({
 
         // Movement logic
         if (state === "walk" || state === "run") {
-            // Direction to player
-            const direction = new THREE.Vector3().subVectors(playerPos, currentPos);
-            direction.y = 0; // Don't look up/down
-            direction.normalize();
+            let targetDirection = new THREE.Vector3();
+            
+            if (distance > config.aggroRange * 2) {
+                // Wander slowly in a circle
+                const wanderTime = stateObj.clock.elapsedTime * 0.5 + wanderOffset;
+                targetDirection.set(Math.sin(wanderTime), 0, Math.cos(wanderTime)).normalize();
+            } else {
+                // Direction to player
+                targetDirection.subVectors(playerPos, currentPos);
+                targetDirection.y = 0; // Don't look up/down
+                targetDirection.normalize();
+            }
 
-            // Rotate towards player
-            const targetRotation = Math.atan2(direction.x, direction.z);
+            // Rotate towards target
+            const targetRotation = Math.atan2(targetDirection.x, targetDirection.z);
 
             // Smooth rotation
             const currentRotation = group.current.rotation.y;
@@ -194,13 +205,15 @@ export const Zombie = ({
             group.current.rotation.y += diff * 10 * delta;
 
             // Apply velocity
-            const currentSpeed = state === "run" ? config.runSpeed : config.speed;
+            // Slower speed for wandering
+            const isWandering = distance > config.aggroRange * 2;
+            const currentSpeed = isWandering ? config.speed * 0.4 : (state === "run" ? config.runSpeed : config.speed);
             const velocity = rbRef.current.linvel();
 
             rbRef.current.setLinvel({
-                x: direction.x * currentSpeed,
+                x: targetDirection.x * currentSpeed,
                 y: velocity.y, // Maintain gravity
-                z: direction.z * currentSpeed,
+                z: targetDirection.z * currentSpeed,
             }, true);
         } else {
             // Stop moving if idle or attacking
